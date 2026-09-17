@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# QGIS plugin build artifacts - never committed, always regenerated
+# (see docs/dev_workflow.md's "Repository hygiene" coding rule)
+i18n/*.qm
+ui_*.py
+resources_rc.py
+
+# Packaged plugin archives - build output, not source
+sigate-*.zip
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+.coverage
+htmlcov/

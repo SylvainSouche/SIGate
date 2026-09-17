@@ -1,0 +1,54 @@
+name: test
+
+# Runs make verify-pure (lint, format-check, the pure-Python test suite,
+# and a build+re-extract+re-compile check of the packaged plugin zip) on
+# every push and pull request - no real QGIS install involved, matching
+# this project's own test-pure/verify-pure split (see docs/dev_workflow.md
+# and README.md's "Development" section): the widget layer under ui/
+# needs a real QGIS install to even import, which this workflow
+# deliberately doesn't attempt to set up - that's a real, separate, much
+# heavier undertaking (a full QGIS + PyQt install), not something this
+# workflow does today. The pure-Python suite is real, substantial
+# coverage on its own (gateways/, download/, sources/, translation.py -
+# roughly 300 tests as of this writing) and catches most regressions;
+# anything QGIS-dependent still needs a real local `make test` run
+# before considering a change verified end to end.
+# Quoted "on" deliberately, not the far more common bare `on:` - bare
+# on/off/yes/no are YAML 1.1 boolean literals, so a generic YAML tool
+# (confirmed directly: PyYAML's safe_load parses bare `on:` as the
+# boolean key True, not the string "on") can silently misread this.
+# GitHub Actions' own parser handles the unquoted form correctly
+# regardless, but quoting removes the ambiguity for anything else that
+# might process this file.
+"on":
+  push:
+  pull_request:
+
+jobs:
+  verify-pure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # The project's own declared minimum (pyproject.toml's
+          # requires-python/ruff's target-version) - the strictest,
+          # most valuable single version to test against, since it
+          # catches any accidental use of newer-than-supported syntax
+          # that a more recent interpreter would silently accept.
+          python-version: "3.9"
+
+      - name: Install p7zip
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full
+        # Needed for exactly one test (test_find_7z_executable_finds_installed_binary,
+        # sigate/tests/test_download.py) - this project's .7z-archive
+        # support has a real, separate fallback for an environment with
+        # no 7-Zip at all (ui.settings' sevenzip path override), but the
+        # test itself expects to find a real binary on PATH.
+
+      - name: Install Python dependencies
+        run: pip install pytest ruff
+
+      - name: make verify-pure
+        run: make verify-pure
