@@ -5,6 +5,7 @@ Data Source Manager categories on plugin load and unload.
 
 from qgis.gui import QgsGui
 
+from .ui.arcgis_rest_provider import ArcGisRestSourceSelectProvider
 from .ui.bulk_listing_provider import BulkListingSourceSelectProvider
 from .ui.wfs_provider import WfsSourceSelectProvider
 from .ui.wmts_wms_provider import WmtsWmsSourceSelectProvider
@@ -21,6 +22,7 @@ class SigatePlugin:
             WmtsWmsSourceSelectProvider(),
             BulkListingSourceSelectProvider(),
             WfsSourceSelectProvider(),
+            ArcGisRestSourceSelectProvider(),
         ):
             registry.addProvider(provider)
             self._providers.append(provider)

@@ -346,3 +346,92 @@ def test_wmts_wms_capabilities_declares_locale_support():
     flag, now that build_capabilities_url/wmts_get_capabilities
     implement it."""
     assert wmts_wms.CAPABILITIES.supports_locale is True
+
+
+# --- plain WMS --------------------------------------------------------------
+
+WMS_130 = b"""<?xml version="1.0"?>
+<WMS_Capabilities version="1.3.0" xmlns="http://www.opengis.net/wms">
+<Capability>
+ <Request><GetMap><Format>image/gif</Format><Format>image/jpeg</Format>
+  <Format>image/png</Format></GetMap></Request>
+ <Layer>
+  <Title>Root</Title>
+  <CRS>EPSG:2056</CRS><CRS>EPSG:4326</CRS>
+  <Layer><Title>Group without a name</Title>
+   <Layer queryable="1"><Name>lawine</Name><Title>Lawine</Title>
+    <CRS>EPSG:3857</CRS><Style><Name>default</Name></Style></Layer>
+   <Layer><Name>sturz</Name><Title>Sturz</Title></Layer>
+  </Layer>
+  <Layer><Name>top</Name><Title>Top level</Title></Layer>
+ </Layer>
+</Capability></WMS_Capabilities>"""
+
+
+def test_wms_capabilities_lists_named_layers_with_inherited_crs_and_png_first():
+    from sigate.gateways.wmts_wms import wms_get_capabilities
+
+    seen = []
+
+    def fetch(url):
+        seen.append(url)
+        return WMS_130
+
+    layers = {
+        layer.identifier: layer
+        for layer in wms_get_capabilities("https://x.test/wms", fetch)
+    }
+    assert set(layers) == {"lawine", "sturz", "top"}
+    assert "SERVICE=WMS" in seen[0] and "VERSION=1.3.0" in seen[0]
+    # inherited from the root, plus its own
+    assert layers["lawine"].crs == ["EPSG:2056", "EPSG:4326", "EPSG:3857"]
+    assert layers["sturz"].crs == ["EPSG:2056", "EPSG:4326"]
+    assert layers["lawine"].styles == ["default"]
+    assert layers["lawine"].formats[0] == "image/png"
+    assert layers["lawine"].default_format == "image/png"
+    assert layers["lawine"].default_tilematrixset is None
+    # the unnamed group's title is kept in front of the child's
+    assert layers["lawine"].title == "Group without a name / Lawine"
+
+
+def test_wms_capabilities_raises_on_a_service_exception():
+    import pytest
+
+    from sigate.gateways.wmts_wms import wms_get_capabilities
+
+    body = b"<ServiceExceptionReport><ServiceException>nope</ServiceException></ServiceExceptionReport>"
+    with pytest.raises(ValueError, match="nope"):
+        wms_get_capabilities("https://x.test/wms", lambda url: body)
+
+
+def test_wms_choose_crs_prefers_web_mercator_then_lonlat_and_skips_invalid():
+    from sigate.gateways.wmts_wms import wms_choose_crs
+
+    assert wms_choose_crs(["EPSG:2056", "EPSG:4326", "EPSG:3857"]) == "EPSG:3857"
+    assert wms_choose_crs(["EPSG:2056", "EPSG:4326"]) == "EPSG:4326"
+    assert wms_choose_crs(["EPSG:2056", "CRS:84"]) == "EPSG:2056"
+    assert wms_choose_crs(["EPSG:2056"], lambda c: c != "EPSG:2056") == "EPSG:3857"
+    assert wms_choose_crs([]) == "EPSG:3857"
+
+
+def test_wms_plain_url_drops_ogc_parameters_but_keeps_others():
+    from sigate.gateways.wmts_wms import wms_plain_url
+
+    assert (
+        wms_plain_url(
+            "https://x.test/cgi?MAP=/a/b.map&SERVICE=WMS&request=GetCapabilities"
+        )
+        == "https://x.test/cgi?MAP=%2Fa%2Fb.map"
+    )
+    assert wms_plain_url("https://x.test/wms") == "https://x.test/wms"
+
+
+def test_build_qgis_wms_uri_for_plain_wms_uses_the_bare_endpoint():
+    from sigate.gateways.wmts_wms import build_qgis_wms_uri
+
+    uri = build_qgis_wms_uri(
+        "https://x.test/wms?SERVICE=WMS", "lawine", crs="EPSG:4326", wms=True
+    )
+    assert "tileMatrixSet" not in uri
+    assert "url=https://x.test/wms" in uri
+    assert "SERVICE=WMTS" not in uri

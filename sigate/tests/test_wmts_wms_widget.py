@@ -75,7 +75,6 @@ def _make_widget(qgis_app, fetch, authcfg_provisioner=None):
     return WmtsWmsSourceSelectWidget(
         None,
         Qt.WindowType(0),
-        0,
         fetch=fetch,
         authcfg_provisioner=authcfg_provisioner,
     )
@@ -1063,3 +1062,34 @@ def test_export_skips_size_check_when_finest_resolution_is_unknown(
     # levels at all - finest_resolution is already None, untouched here.
 
     widget._on_export_clicked()  # must not raise
+
+
+def test_wms_only_gateway_lists_its_layers_via_the_wms_fallback(qgis_app):
+    """A gateway whose server answers a WMTS request with nothing (a plain
+    WMS) is read as WMS, and the layers build a plain-WMS connection."""
+    from sigate.sources.store import GatewayConfig, SourceConfig
+    from sigate.ui.wmts_wms_widget import collect_layer_choices_for_gateway
+
+    wms = b"""<WMS_Capabilities version="1.3.0" xmlns="http://www.opengis.net/wms">
+    <Capability><Request><GetMap><Format>image/png</Format></GetMap></Request>
+    <Layer><CRS>EPSG:4326</CRS><CRS>EPSG:3857</CRS>
+    <Layer><Name>lawine</Name><Title>Lawine</Title></Layer></Layer>
+    </Capability></WMS_Capabilities>"""
+
+    def fetch(url):
+        if "SERVICE=WMS" in url:
+            return wms
+        return b"<ServiceExceptionReport/>"
+
+    gateway = GatewayConfig(
+        gateway_type="wmts_wms", base_url="https://x.test/wms", extra={"role": "r"}
+    )
+    source = SourceConfig(key="s", display_name="S", country="C", gateways=[gateway])
+    choices = collect_layer_choices_for_gateway(
+        source, gateway, fetch=fetch, authcfg_provisioner=lambda *a: None
+    )
+    assert [c.layer_info.identifier for c in choices] == ["lawine"]
+    uri = choices[0].build_uri()
+    assert "tileMatrixSet" not in uri
+    assert "crs=EPSG:3857" in uri
+    assert "url=https://x.test/wms" in uri

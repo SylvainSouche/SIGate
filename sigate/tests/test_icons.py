@@ -1,5 +1,5 @@
 """
-Tests for sigate.ui.icons and its use across all three
+Tests for sigate.ui.icons and its use across all
 QgsSourceSelectProvider subclasses - confirms a real icon is returned,
 not the empty placeholder each provider used before an actual icon.png
 existed.
@@ -20,7 +20,8 @@ def test_plugin_icon_returns_a_non_null_icon(qgis_app):
     assert not icon.isNull()
 
 
-def test_all_three_providers_return_the_real_icon_not_an_empty_placeholder(qgis_app):
+def test_all_providers_return_the_real_icon_not_an_empty_placeholder(qgis_app):
+    from sigate.ui.arcgis_rest_provider import ArcGisRestSourceSelectProvider
     from sigate.ui.bulk_listing_provider import BulkListingSourceSelectProvider
     from sigate.ui.wfs_provider import WfsSourceSelectProvider
     from sigate.ui.wmts_wms_provider import WmtsWmsSourceSelectProvider
@@ -29,6 +30,7 @@ def test_all_three_providers_return_the_real_icon_not_an_empty_placeholder(qgis_
         WmtsWmsSourceSelectProvider,
         BulkListingSourceSelectProvider,
         WfsSourceSelectProvider,
+        ArcGisRestSourceSelectProvider,
     ):
         icon = provider_cls().icon()
         assert not icon.isNull(), (

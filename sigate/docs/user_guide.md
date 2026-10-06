@@ -1,10 +1,10 @@
 # SIGate — User Guide
 
-SIGate adds three new categories to QGIS's **Data Source Manager** (**Layer → Data Source Manager…**), each for a different way of getting geospatial data from configured national mapping agencies into your QGIS project. Currently configured: **France (IGN)**, **Switzerland (swisstopo)**, **Germany (BKG TopPlusOpen)**, the **Netherlands (PDOK)**, and **Austria (basemap.at)** — see "Current coverage" at the end of this guide for exactly what that means in practice for each.
+SIGate adds four new categories to QGIS's **Data Source Manager** (**Layer → Data Source Manager…**), each for a different way of getting geospatial data from configured national mapping agencies into your QGIS project. Currently configured: **France (IGN)**, **Switzerland (swisstopo)**, **Italian Alpine regions (Piemonte, Valle d'Aosta, Friuli Venezia Giulia)**, **Norway (NVE avalanche events)**, **INRAE avalanche data (France)**, **Germany (BKG TopPlusOpen)**, the **Netherlands (PDOK)**, and **Austria (basemap.at)** — see "Current coverage" at the end of this guide for exactly what that means in practice for each.
 
 ## Managing connections
 
-All three tabs share the same **Connection** row at the top, matching the same New/Edit/Delete/Load/Save pattern QGIS itself uses for WMS, WFS, PostGIS, and other server-based data sources:
+All four tabs share the same **Connection** row at the top, matching the same New/Edit/Delete/Load/Save pattern QGIS itself uses for WMS, WFS, PostGIS, and other server-based data sources:
 
 - The dropdown switches between whichever connections are configured for that tab's kind of source.
 - **New…** adds your own connection (a base URL, optional authentication, and any other details a specific source needs).
@@ -71,15 +71,38 @@ For adding vector data (feature layers — boundaries, points, polygons) rather 
 
 ### The other case: downloading linked files
 
-Some layers (a national LiDAR elevation index is a real example) don't represent map features at all — each "feature" is really a record pointing at a downloadable file, with its geometry just showing where that file covers. For these:
+Some layers (IGN's LiDAR HD tile index, `IGNF_LIDAR-HD_METADONNEE:metadata`, is a real example) don't represent map features at all — each "feature" is really a record pointing at downloadable files, with its geometry just showing the tile it covers. For these:
 
 1. Click **Query features** instead of Add to map. This actually fetches the feature data and shows it in a table.
-2. If any of the returned rows have a download link, the **Download selected** button becomes available. Select one or more rows and click it.
-3. From here, the flow is identical to the Bulk Download tab: set a central repository (and destination, if the linked file turns out to be an archive), and the file downloads, gets checked, and is added to your map.
+2. If any of the returned rows have a download link, the **Download selected** button becomes available. A column counts as a download link when its *values* are web addresses (`http://` or `https://`), whatever the column is called. Select one or more rows and click it.
+3. If the layer has **several** link columns (the LiDAR HD layer has four: `url_mnt` terrain model, `url_mns` surface model, `url_mnh` canopy height model, `url_npl` point cloud), a dialog asks which products to fetch for all the selected rows. The three rasters are pre-ticked; the point cloud (hundreds of MB per tile) is not.
+4. From here, the flow is identical to the Bulk Download tab: set a central repository (and destination, if a linked file turns out to be an archive), and the files download, get checked, and are added to your map — rasters as raster layers, a `.copc.laz` point cloud as a point-cloud layer. Rasters and point clouds are saved in separate `raster/` and `point_cloud/` subfolders. When you download several tiles of one product you are offered a mosaic per product; the products are never mixed into one mosaic.
+
+**Add to map** on such a layer only adds the vector footprints; the data files come through the download buttons.
+
+**Where layers appear in the project**: SIGate never leaves layers loose at the top level. Downloaded files go into groups that mirror the folders on disk — *source › layer › product* (for example `IGN (France) › IGNF_LIDAR-HD_METADONNEE_metadata › MNT`); files extracted from an archive go under *source › archive name*; WM(T)S layers, GeoTIFF exports and WFS "Add to map" go into a group named after the source. Downloading again reuses the same groups. (A way to customise this organisation is planned.)
 
 If **Download selected** stays disabled after querying, the layer you picked is a normal vector layer without downloadable files attached — use **Add to map** instead.
 
 ### A note on the attribute filter: it's built to work the same way for simple `field = value` searches whether the underlying source speaks a stricter query dialect or a more permissive one — this covers the common case well, but hasn't been confirmed to behave identically for every possible kind of filter expression (complex boolean logic, wildcards, spatial queries). If a filter doesn't behave as expected, try simplifying it to a single plain equality check first.
+
+
+**Plain WMS** layers (as opposed to tiled WMTS) are listed in the WM(T)S tab the same way - for example the Valle d'Aosta avalanche cadastre or the Swiss hazard maps. A WMS layer is requested in web-mercator when the server offers it, otherwise lon/lat or the first coordinate system QGIS recognises. *Export as GeoTIFF* only works on tiled (WMTS) layers.
+
+**On some servers the WFS Filter panel does not narrow the query results.** The Swiss geodienste.ch services ignore the filter text sent with the query, so the table shows unfiltered rows; "Add to map" still applies your filter (QGIS handles it itself).
+
+---
+
+## SIGate ArcGIS REST
+
+For sources that publish vector data through Esri's ArcGIS REST API instead of WFS (for example Arpa Piemonte's avalanche service, which has a WMS but no WFS). It works like the WFS tab.
+
+1. Pick a connection. The list shows the service's queryable layers; group layers appear as a path (`GROUP › Layer`). Use the filter box to narrow it.
+2. Select a layer: its geometry type, CRS and field count appear under the list.
+3. Optionally narrow the result: **Filter...** takes a SQL where clause (for example `comune = 'Alagna'`), and **Limit to current map extent** restricts to what the map canvas shows. **Query features** shows the matching rows (200 per page by default; the server may cap it lower), with the total count.
+4. **Add to map** adds the layer through QGIS's own ArcGIS support. If you selected rows, only those are added; otherwise everything matching the filter is. The layer lands in a group named after the source.
+
+Dates are shown as ISO dates. The tab does not download files: it adds live layers, like the WFS tab's common case.
 
 ---
 

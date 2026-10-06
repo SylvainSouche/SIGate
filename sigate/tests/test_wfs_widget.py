@@ -60,7 +60,7 @@ def _make_widget(qgis_app, fetch):
 
     from sigate.ui.wfs_widget import WfsSourceSelectWidget
 
-    return WfsSourceSelectWidget(None, Qt.WindowType(0), 0, fetch=fetch)
+    return WfsSourceSelectWidget(None, Qt.WindowType(0), fetch=fetch)
 
 
 def test_build_wfs_uri_produces_correct_parameters():
@@ -124,11 +124,51 @@ def test_widget_construction_registers_all_three_providers(qgis_app):
     plugin = SigatePlugin(iface=None)
     plugin.initGui()
     try:
-        assert len(registry.providers()) == before + 3
+        assert len(registry.providers()) == before + 4
         assert len(registry.providersByKey("sigate_wfs")) == 1
+        assert len(registry.providersByKey("sigate_arcgis_rest")) == 1
     finally:
         plugin.unload()
     assert len(registry.providers()) == before
+
+
+def test_providers_create_widgets_from_the_widget_mode_qgis_supplies(
+    qgis_app, monkeypatch
+):
+    """QGIS's Data Source Manager hands each provider a real
+    QgsProviderRegistry.WidgetMode enum member, which the widgets must
+    forward to QgsAbstractDataSourceWidget as-is (a plain int is rejected
+    by QGIS 4 / Qt 6). The other tests here construct widgets without one,
+    so this covers the path QGIS itself takes.
+
+    A provider can't be handed a fake fetch function, so the widgets fall
+    back to the real HTTP transport while populating - blocked here so the
+    test never touches (or waits on) the network."""
+    import urllib.error
+
+    from qgis.core import QgsProviderRegistry
+    from qgis.PyQt.QtCore import Qt
+
+    from sigate.ui.bulk_listing_provider import BulkListingSourceSelectProvider
+    from sigate.ui.wfs_provider import WfsSourceSelectProvider
+    from sigate.ui.wmts_wms_provider import WmtsWmsSourceSelectProvider
+
+    def no_network(*args, **kwargs):
+        raise urllib.error.URLError("network blocked in test")
+
+    # Both gateway transports import urlopen by name, so patch each binding.
+    monkeypatch.setattr("sigate.gateways.atom.urlopen", no_network)
+    monkeypatch.setattr("sigate.gateways.stac.urlopen", no_network)
+    widget_mode = QgsProviderRegistry.WidgetMode(0)
+    for provider_cls in (
+        WmtsWmsSourceSelectProvider,
+        BulkListingSourceSelectProvider,
+        WfsSourceSelectProvider,
+    ):
+        widget = provider_cls().createDataSourceWidget(
+            None, Qt.WindowType(0), widget_mode
+        )
+        assert widget is not None, provider_cls.__name__
 
 
 def test_widget_loads_feature_types_via_injected_fetch(qgis_app):
@@ -693,7 +733,12 @@ def test_filter_button_does_not_requery_when_already_queried(qgis_app, monkeypat
     query... so the grid updates right away"), which would guarantee a
     fetch regardless of the caching this test actually checks. Only a
     cancelled dialog isolates whether *opening* the panel needlessly
-    re-fetches."""
+    re-fetches.
+
+    A one-time DescribeFeatureType request (cached per feature type, used
+    to find the real geometry field for the $geom token) is expected the
+    first time the panel opens and isn't a re-query of the features, so
+    it's excluded from the check."""
     fake_dialog_cls = _install_fake_query_builder_dialog(monkeypatch, accept=False)
     fetch_calls = []
 
@@ -709,7 +754,8 @@ def test_filter_button_does_not_requery_when_already_queried(qgis_app, monkeypat
 
     widget._on_filter_button_clicked()
 
-    assert fetch_calls == []  # no extra fetch - already had a queried result
+    feature_fetches = [url for url in fetch_calls if "DescribeFeatureType" not in url]
+    assert feature_fetches == []  # no re-query - already had a queried result
     dialog = fake_dialog_cls.instances[-1]
     assert dialog.seeded_fieldnames == ["wkt_geom", "name"]
 
@@ -1279,3 +1325,228 @@ def test_build_download_items_from_rows_populates_expected_md5_when_present():
 
     assert items[0].expected_md5 == "abc123"
     assert items[1].expected_md5 is None
+
+
+# --- IGN LiDAR HD metadata layer: several download links per feature --------
+
+_LHD_ROW = {
+    "capteur": "RIEGL VQ-1560 II",
+    "url_mnh": "https://data.geopf.fr/wms-r?SERVICE=WMS&REQUEST=GetMap&FILENAME=LHD_FXX_0998_6542_MNH_O_0M50_LAMB93_IGN69.tif",
+    "url_mns": "https://data.geopf.fr/wms-r?SERVICE=WMS&REQUEST=GetMap&FILENAME=LHD_FXX_0998_6542_MNS_O_0M50_LAMB93_IGN69.tif",
+    "url_mnt": "https://data.geopf.fr/wms-r?SERVICE=WMS&REQUEST=GetMap&FILENAME=LHD_FXX_0998_6542_MNT_O_0M50_LAMB93_IGN69.tif",
+    "url_npl": "https://data.geopf.fr/telechargement/download/LiDARHD-NUALID/NUALHD_1-0__LAZ_LAMB93_QK_2025-06-13/LHD_FXX_0998_6542_PTS_LAMB93_IGN69.copc.laz",
+    "code_mission": "21LHD5QK2",
+    "metadata": "{}",
+}
+
+
+def test_url_fields_for_finds_every_url_product_column():
+    from sigate.ui.wfs_widget import url_field_for, url_fields_for
+
+    assert url_fields_for(_LHD_ROW) == ["url_mnh", "url_mns", "url_mnt", "url_npl"]
+    assert url_field_for(_LHD_ROW) == "url_mnh"
+    # an empty or non-URI value is not a download link, whatever the name
+    assert url_fields_for({"url_x": "", "url_y": "not a link", "id": "1"}) == []
+
+
+def test_url_fields_are_detected_by_value_not_by_column_name():
+    from sigate.ui.wfs_widget import is_download_uri, url_fields_for
+
+    row = {
+        "lien_telechargement": "https://x.example/data/a.zip",
+        "doc": "http://x.example/readme.html",
+        "metadata": '{"capteur": ["x"], "url": "https://x.example/a"}',
+        "contact": "mailto:someone@example.org",
+        "chemin": "/data/a.tif",
+        "ftp_link": "ftp://x.example/a.zip",
+        "note": "see https://x.example/a for details",
+        "id": "137",
+    }
+    assert url_fields_for(row) == ["lien_telechargement", "doc"]
+    assert is_download_uri("HTTPS://x.example/a")
+    assert not is_download_uri("https://")
+    assert not is_download_uri(None)
+    assert not is_download_uri("")
+
+
+def test_product_label_and_filename_from_url():
+    from sigate.ui.wfs_widget import filename_from_url, product_label_for
+
+    assert product_label_for("url_mnt") == "MNT"
+    assert product_label_for("url") == "url"
+    assert (
+        filename_from_url(_LHD_ROW["url_mnt"])
+        == "LHD_FXX_0998_6542_MNT_O_0M50_LAMB93_IGN69.tif"
+    )
+    assert (
+        filename_from_url(_LHD_ROW["url_npl"])
+        == "LHD_FXX_0998_6542_PTS_LAMB93_IGN69.copc.laz"
+    )
+    assert filename_from_url("https://x/y/z.zip?token=1") == "z.zip"
+
+
+def test_build_download_items_yields_one_item_per_chosen_product():
+    from sigate.ui.wfs_widget import build_download_items_from_rows
+
+    items = build_download_items_from_rows(
+        [_LHD_ROW],
+        "IGN (France)",
+        layer_name="IGNF_LIDAR-HD_METADONNEE:metadata",
+        fields=["url_mnt", "url_npl"],
+    )
+    assert [i.filename for i in items] == [
+        "LHD_FXX_0998_6542_MNT_O_0M50_LAMB93_IGN69.tif",
+        "LHD_FXX_0998_6542_PTS_LAMB93_IGN69.copc.laz",
+    ]
+    # category follows the file type, so rasters and the point cloud
+    # land in different folders
+    assert [i.product for i in items] == ["MNT", "NPL"]
+    assert "/raster/" in items[0].subdirectory
+    assert "/point_cloud/" in items[1].subdirectory
+
+
+def test_download_selected_is_enabled_for_url_product_columns(qgis_app):
+    widget = _make_widget(qgis_app, fetch=lambda url: _capabilities_xml())
+    widget.list_widget.setCurrentRow(1)
+    header = "\t".join(["wkt_geom"] + list(_LHD_ROW))
+    values = "\t".join(["Polygon ((1 2, 3 4))"] + list(_LHD_ROW.values()))
+    widget.fetch = lambda url: f"{header}\n{values}\n".encode("utf-8")
+
+    widget._on_query_clicked()
+
+    assert widget.download_button.isEnabled()
+
+
+def test_choose_download_fields_asks_only_when_several_products(qgis_app):
+    widget = _make_widget(qgis_app, fetch=lambda url: _capabilities_xml())
+    asked = []
+
+    def chooser(products, preselected, count):
+        asked.append((dict(products), set(preselected), count))
+        return ["url_mnt"]
+
+    widget.product_chooser = chooser
+
+    assert widget._choose_download_fields([_LHD_ROW]) == ["url_mnt"]
+    # rasters pre-ticked, the (far larger) point cloud not
+    assert asked[0][1] == {"url_mnh", "url_mns", "url_mnt"}
+    assert asked[0][0]["url_npl"] == "NPL"
+    # a one-link layer is never asked about
+    asked.clear()
+    assert widget._choose_download_fields([{"url": "https://x/a.tif"}]) == ["url"]
+    assert asked == []
+    # cancelling / ticking nothing aborts the download
+    widget.product_chooser = lambda *a: None
+    assert widget._choose_download_fields([_LHD_ROW]) is None
+
+
+def test_copc_laz_is_added_as_a_point_cloud_layer(qgis_app, tmp_path):
+    widget = _make_widget(qgis_app, fetch=lambda url: _capabilities_xml())
+    emitted = []
+    widget.addPointCloudLayer.connect(lambda *a: emitted.append(a))
+    path = tmp_path / "LHD_FXX_0998_6542_PTS_LAMB93_IGN69.copc.laz"
+    path.write_bytes(b"x")
+
+    widget._add_layer(path)
+
+    assert emitted == [(str(path), "LHD_FXX_0998_6542_PTS_LAMB93_IGN69", "copc")]
+
+
+def _fake_extent_widget(qgis_app, monkeypatch, extent, crs_text):
+    import sigate.ui.wfs_widget as widget_module
+    from qgis.core import QgsCoordinateReferenceSystem
+
+    monkeypatch.setattr(
+        widget_module,
+        "iface",
+        _FakeIfaceForExtent(
+            _FakeMapCanvasForExtent(extent, QgsCoordinateReferenceSystem(crs_text))
+        ),
+    )
+    widget = _make_widget(
+        qgis_app, fetch=lambda url: _capabilities_xml_with_default_crs(crs_text)
+    )
+    widget.list_widget.setCurrentRow(0)
+    widget._active_filter_text = "WITHIN($geom, @map_extent)"
+    return widget
+
+
+def _first_pair(wkt):
+    pair = wkt.split("((")[1].split(",")[0].split()
+    return float(pair[0]), float(pair[1])
+
+
+def test_add_to_map_filter_is_a_qgis_expression_in_qgis_axis_order(
+    qgis_app, monkeypatch
+):
+    """Live-confirmed against a 4326 layer: the server's CQL wants the
+    extent as lat,lon, but the QGIS expression handed to the native
+    provider must be lon,lat (QGIS's own x,y) - the two paths can't share
+    one resolved text, and the add path must also state the CRS the
+    literal is in (srsname)."""
+    from qgis.core import QgsDataSourceUri, QgsRectangle
+
+    widget = _fake_extent_widget(
+        qgis_app, monkeypatch, QgsRectangle(6.8, 45.9, 6.95, 46.0), "EPSG:4326"
+    )
+    emitted = []
+    widget.addVectorLayer.connect(lambda *a: emitted.append(a))
+
+    widget._on_add_clicked()
+
+    (uri_text, _name, _provider) = emitted[0]
+    uri = QgsDataSourceUri(uri_text)
+    expression = uri.param("filter")
+    assert expression.startswith("WITHIN($geometry, geom_from_wkt('")
+    assert "@map_extent" not in expression and "$geom," not in expression
+    lon, lat = _first_pair(expression.split("geom_from_wkt('")[1])
+    assert abs(lon - 6.8) < 0.01 and abs(lat - 45.9) < 0.01  # lon,lat
+    assert uri.param("srsname") == "EPSG:4326"
+
+    # ...while the query path still sends lat,lon for the same extent
+    cql = widget._current_filter_expression()
+    first, second = _first_pair(cql)
+    assert abs(first - 45.9) < 0.01 and abs(second - 6.8) < 0.01
+
+
+def test_add_to_map_filter_for_a_projected_crs_keeps_x_y_order(qgis_app, monkeypatch):
+    from qgis.core import QgsDataSourceUri, QgsRectangle
+
+    widget = _fake_extent_widget(
+        qgis_app,
+        monkeypatch,
+        QgsRectangle(900000.0, 6500000.0, 901000.0, 6501000.0),
+        "EPSG:2154",
+    )
+    emitted = []
+    widget.addVectorLayer.connect(lambda *a: emitted.append(a))
+
+    widget._on_add_clicked()
+
+    uri = QgsDataSourceUri(emitted[0][0])
+    expression = uri.param("filter")
+    x, y = _first_pair(expression.split("geom_from_wkt('")[1])
+    assert x == 900000.0 and y == 6500000.0
+    assert uri.param("srsname") == "EPSG:2154"
+
+
+def test_selecting_a_second_wfs_connection_of_the_same_source_uses_its_own_url(
+    qgis_app,
+):
+    """geodienste.ch offers several WFS services in one source; the tab
+    must read the selected entry's gateway, not the source's first."""
+    seen = []
+
+    def fetch(url):
+        seen.append(url)
+        return _capabilities_xml()
+
+    widget = _make_widget(qgis_app, fetch=fetch)
+    combo = widget.connection_manager.combo
+    index = next(i for i in range(combo.count()) if "umfassend" in combo.itemText(i))
+    combo.setCurrentIndex(index)
+    assert "naturereigniskataster_umfassend_v1_0_0" in seen[-1]
+    assert (
+        widget.connection_manager.current_gateway().base_url
+        == "https://geodienste.ch/db/naturereigniskataster_umfassend_v1_0_0/deu"
+    )

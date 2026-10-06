@@ -70,7 +70,8 @@ is opened (see gateways.wfs's own function for the underlying fetch).
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
+from urllib.parse import parse_qs, unquote, urlparse
 
 from qgis.core import (
     QgsCoordinateReferenceSystem,
@@ -110,7 +111,13 @@ from sigate.gateways.wfs import (
 from . import download_flow
 from . import settings as sigate_settings
 from .connection_manager import ConnectionManager
-from .expression_builder import MAP_EXTENT_TOKEN, substitute_tokens
+from .expression_builder import (
+    MAP_EXTENT_TOKEN,
+    substitute_tokens,
+    substitute_tokens_for_qgis,
+)
+from .layer_groups import emit_in_scope, group_scope
+from .product_choice_dialog import ProductChoiceDialog
 from .query_builder_dialog import QueryBuilderDialog
 from .target_picker import TargetPicker
 
@@ -121,11 +128,9 @@ WFS_PROVIDER_KEY = "WFS"
 _DEFAULT_VERSION = "2.0.0"
 _DEFAULT_COUNT = 200
 
-# Field names checked (case-insensitively) when looking for a downloadable
-# file URL on a queried feature row - matches the same convention used
-# throughout this project wherever a WFS layer's file-index use pattern
-# has come up.
-_URL_FIELD_NAMES = ("url", "href", "download", "link")
+# URI schemes the download pipeline can fetch (urllib over HTTP/S);
+# a column is only treated as a download link if its values use one.
+_DOWNLOAD_SCHEMES = ("http", "https")
 _FILENAME_FIELD_NAMES = ("name_download", "filename", "name")
 _MD5_FIELD_NAMES = ("md5", "checksum", "checksum_md5", "hash_md5")
 _GEOMETRY_FIELD_NAMES = ("wkt_geom", "geometrie", "geom", "geometry", "the_geom")
@@ -180,15 +185,59 @@ def build_wfs_uri(
     return uri.uri()
 
 
+def is_download_uri(value) -> bool:
+    """True when `value` is, as a whole, one URI with a scheme the
+    downloader supports (_DOWNLOAD_SCHEMES) - no surrounding text, no
+    whitespace. A JSON metadata blob, a plain id, an email address or a
+    relative path is not."""
+    if not isinstance(value, str) or not value or any(c.isspace() for c in value):
+        return False
+    parsed = urlparse(value)
+    return parsed.scheme.lower() in _DOWNLOAD_SCHEMES and bool(parsed.netloc)
+
+
+def url_fields_for(row: dict) -> List[str]:
+    """Every download-link field in a queried feature row, in column
+    order - empty for a plain vector-layer-use feature type. Decided by
+    the *values*, not the column names: a field qualifies when its value
+    is a URI with a supported scheme (is_download_uri). WFS schemas
+    declare such columns as plain xsd:string, so neither the type nor
+    the name (IGN's LiDAR HD metadata layer: url_mnt, url_mns, url_mnh,
+    url_npl; the retired ":dalle" layers: url) is a dependable signal,
+    while the content is. Caveat: a layer whose only link column points
+    to documentation rather than data would also qualify - the user
+    chose to download."""
+    return [key for key, value in row.items() if is_download_uri(value)]
+
+
 def url_field_for(row: dict) -> Optional[str]:
-    """The name of the url-like field in a queried feature row, or None
-    if it doesn't have one - a plain vector-layer-use feature type won't;
-    a file-index-use one (confirmed real for IGN's LiDAR HD ":dalle")
-    will."""
-    for key in row:
-        if key.lower() in _URL_FIELD_NAMES:
-            return key
-    return None
+    """The first download-link field of a row, or None - see
+    url_fields_for for every one."""
+    fields = url_fields_for(row)
+    return fields[0] if fields else None
+
+
+def product_label_for(field: str) -> str:
+    """A short display label for a download-link field: "url_mnt" ->
+    "MNT"; a plain "url" stays "url"."""
+    lowered = field.lower()
+    if lowered.startswith("url_"):
+        return field[4:].upper()
+    if lowered.endswith("_url"):
+        return field[:-4].upper()
+    return field
+
+
+def filename_from_url(href: str) -> str:
+    """The file name a download link delivers. A WMS GetMap link (IGN's
+    LiDAR HD raster links) names its file in a FILENAME query parameter,
+    and its path's last segment is just the service name; otherwise the
+    path's last segment, without any query string."""
+    parsed = urlparse(href)
+    for key, values in parse_qs(parsed.query).items():
+        if key.upper() == "FILENAME" and values and values[0]:
+            return values[0]
+    return unquote(parsed.path.rsplit("/", 1)[-1]) or "download"
 
 
 def filename_for(row: dict) -> Optional[str]:
@@ -273,34 +322,51 @@ def build_id_list_filter(id_field: str, rows) -> str:
 
 
 def build_download_items_from_rows(
-    rows: List[dict], source_display_name: str, layer_name: Optional[str] = None
+    rows: List[dict],
+    source_display_name: str,
+    layer_name: Optional[str] = None,
+    fields: Optional[Sequence[str]] = None,
 ) -> List[pipeline.DownloadItem]:
     """Resolves query result rows carrying a url-like field into
     DownloadItems, skipping any row that doesn't have one. Each item's
     subdirectory is precomputed (source/category/layer) so a download
     batch doesn't land flatly in central_repo regardless of where it
     came from - see download.pipeline.build_download_subdirectory for
-    what each segment actually means."""
+    what each segment actually means.
+
+    fields, when given, restricts a row to those download-link fields
+    (the products the user picked); otherwise a row's first link is used.
+    A row with several links yields one item per chosen link, each named
+    from its own URL (the row's "name_download"-style column describes
+    only a single file, so it is used only for a one-link row)."""
     items = []
     for row in rows:
-        field = url_field_for(row)
-        if not field or not row.get(field):
-            continue
-        href = row[field]
-        filename = filename_for(row) or href.rsplit("/", 1)[-1]
-        subdirectory = pipeline.build_download_subdirectory(
-            source_display_name, filename, layer_name=layer_name
+        row_fields = url_fields_for(row)
+        chosen = (
+            [f for f in row_fields if f in fields]
+            if fields is not None
+            else row_fields[:1]
         )
-        md5_field = md5_field_for(row)
-        expected_md5 = row.get(md5_field) if md5_field else None
-        items.append(
-            pipeline.DownloadItem(
-                url=href,
-                filename=filename,
-                subdirectory=subdirectory,
-                expected_md5=expected_md5 or None,
+        for field in chosen:
+            href = row.get(field)
+            if not href:
+                continue
+            single_link = len(row_fields) == 1
+            filename = (single_link and filename_for(row)) or filename_from_url(href)
+            subdirectory = pipeline.build_download_subdirectory(
+                source_display_name, filename, layer_name=layer_name
             )
-        )
+            md5_field = md5_field_for(row)
+            expected_md5 = row.get(md5_field) if md5_field and single_link else None
+            items.append(
+                pipeline.DownloadItem(
+                    url=href,
+                    filename=filename,
+                    subdirectory=subdirectory,
+                    expected_md5=expected_md5 or None,
+                    product=None if single_link else product_label_for(field),
+                )
+            )
     return items
 
 
@@ -309,15 +375,24 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
         self,
         parent=None,
         fl=Qt.WindowType(0),
-        widget_mode=0,
+        widget_mode=None,
         fetch=None,
         download_fn=None,
         progress_runner=None,
+        product_chooser=None,
     ) -> None:
-        super().__init__(parent, fl, widget_mode)
+        # None means "use QGIS's own constructor default" - a bare int 0 is
+        # QgsProviderRegistry.WidgetMode.None in QGIS 3 but that member
+        # doesn't exist in QGIS 4 (0 is Standalone there), and Qt 6 rejects
+        # a plain int for an enum argument outright.
+        if widget_mode is None:
+            super().__init__(parent, fl)
+        else:
+            super().__init__(parent, fl, widget_mode)
         self.fetch = fetch
         self.download_fn = download_fn
         self.progress_runner = progress_runner
+        self.product_chooser = product_chooser
         self.feature_types = []  # [WfsFeatureTypeInfo, ...]
         # The real, authoritative geometry field name for each feature
         # type this session has actually looked up via DescribeFeatureType
@@ -469,7 +544,7 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
     def _on_connection_changed(self, source) -> None:
         if source is None:
             return
-        gateway = source.gateway("wfs")
+        gateway = self.connection_manager.current_gateway()
         if gateway is None:
             return
         try:
@@ -587,7 +662,7 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
         if typename is None:
             return "geom"
         if typename not in self._geometry_field_cache:
-            gateway = self.connection_manager.current_connection().gateway("wfs")
+            gateway = self.connection_manager.current_gateway()
             try:
                 self._geometry_field_cache[typename] = wfs_describe_geometry_field(
                     gateway.base_url, typename, fetch=self.fetch
@@ -603,7 +678,7 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
             else "geom"
         )
 
-    def _get_canvas_extent_wkt(self) -> str:
+    def _get_canvas_extent_wkt(self, qgis_axis_order: bool = False) -> str:
         """Builds a real WKT polygon from the current QGIS map canvas
         extent, reprojected into the currently selected feature type's
         own declared CRS (gateways.wfs's WfsFeatureTypeInfo.default_crs,
@@ -657,7 +732,7 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
             extent = transform.transformBoundingBox(canvas.extent())
         except Exception:
             extent = canvas.extent()
-        if target_crs.hasAxisInverted():
+        if target_crs.hasAxisInverted() and not qgis_axis_order:
             extent = QgsRectangle(
                 extent.yMinimum(),
                 extent.xMinimum(),
@@ -717,17 +792,31 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
             self.query_start_index = 0
             self._run_query(typename, start_index=0)
 
-    def _current_filter_expression(self) -> Optional[str]:
+    def _current_filter_expression(self, for_qgis: bool = False) -> Optional[str]:
+        """The active filter with its tokens resolved. for_qgis=False
+        (querying): CQL for the server, geometry literal in the feature
+        type's CRS with the authority axis order the server expects.
+        for_qgis=True ("Add to map"): a QGIS expression for the native
+        provider, geometry literal in the same CRS but in QGIS's own x,y
+        order - see expression_builder.substitute_tokens_for_qgis for why
+        the two can't share one text."""
         if not self._active_filter_text:
             return None
         map_extent_wkt = (
-            self._get_canvas_extent_wkt()
+            self._get_canvas_extent_wkt(qgis_axis_order=for_qgis)
             if MAP_EXTENT_TOKEN in self._active_filter_text
             else None
         )
-        resolved = substitute_tokens(
-            self._active_filter_text, self._current_geometry_field(), map_extent_wkt
-        )
+        if for_qgis:
+            resolved = substitute_tokens_for_qgis(
+                self._active_filter_text, map_extent_wkt
+            )
+        else:
+            resolved = substitute_tokens(
+                self._active_filter_text,
+                self._current_geometry_field(),
+                map_extent_wkt,
+            )
         return resolved or None
 
     def _current_count(self) -> int:
@@ -761,7 +850,7 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
             self.results_tree.indexOfTopLevelItem(item)
             for item in self.results_tree.selectedItems()
         ]
-        filter_expression = self._current_filter_expression()
+        filter_expression = self._current_filter_expression(for_qgis=True)
         layer_name = typename
         # Only the id-list-based selection path below overrides this to
         # False - restricting to the current viewport is reasonable for
@@ -805,14 +894,21 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
                 )
                 restrict_to_bbox = False
 
-        gateway = self.connection_manager.current_connection().gateway("wfs")
+        gateway = self.connection_manager.current_gateway()
         uri = build_wfs_uri(
             gateway.base_url,
             typename,
+            # Same CRS the filter's geometry literal was built in, so the
+            # layer's CRS and the literal agree (the query path already
+            # sends it as SRSNAME for the same reason).
+            srsname=self._current_feature_type_crs(),
             filter_expression=filter_expression,
             restrict_to_bbox=restrict_to_bbox,
         )
-        self.addVectorLayer.emit(uri, layer_name, WFS_PROVIDER_KEY)
+        with group_scope(self.connection_manager.current_connection().display_name):
+            emit_in_scope(
+                lambda: self.addVectorLayer.emit(uri, layer_name, WFS_PROVIDER_KEY)
+            )
 
     # --------------------------------------------------------------- querying
 
@@ -834,7 +930,7 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
                     value = value[:57] + "..."
                 values.append(value)
             self.results_tree.addTopLevelItem(QTreeWidgetItem(values))
-        self.download_button.setEnabled(any(url_field_for(row) for row in rows))
+        self.download_button.setEnabled(any(url_fields_for(row) for row in rows))
 
     def _on_query_clicked(self) -> None:
         typename = self._current_typename()
@@ -849,7 +945,7 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
         self._run_query(typename, start_index=0)
 
     def _run_query(self, typename: str, start_index: int) -> None:
-        gateway = self.connection_manager.current_connection().gateway("wfs")
+        gateway = self.connection_manager.current_gateway()
         count = self._current_count()
         filter_expression = self._current_filter_expression()
 
@@ -923,7 +1019,7 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
                 start_index, len(rows), fmt
             )
         )
-        has_download_links = any(url_field_for(row) for row in rows)
+        has_download_links = any(url_fields_for(row) for row in rows)
         # Names whether a filter was actually part of this query, not
         # just whether one is currently displayed in the status label -
         # confirms the filter genuinely reached the server for this
@@ -1012,7 +1108,7 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
             )
             return
 
-        gateway = self.connection_manager.current_connection().gateway("wfs")
+        gateway = self.connection_manager.current_gateway()
         count = self._current_count()
         try:
             total = wfs_get_hits(gateway.base_url, typename, fetch=self.fetch)
@@ -1082,6 +1178,43 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
 
     # --------------------------------------------------------------- download
 
+    def _choose_download_fields(self, rows: List[dict]) -> Optional[List[str]]:
+        """Which download-link fields to fetch for `rows`. With one link
+        column there is nothing to ask; with several (e.g. LiDAR HD's
+        url_mnt/mns/mnh/npl) asks via ProductChoiceDialog, pre-ticking
+        everything except point clouds (far larger). Returns None when
+        the user cancels or ticks nothing. `product_chooser` is
+        injectable (a callable taking the products dict, the
+        preselected set and the row count, returning a field list or
+        None) so tests need no real dialog."""
+        products: Dict[str, str] = {}
+        for row in rows:
+            for field in url_fields_for(row):
+                products.setdefault(field, product_label_for(field))
+        if len(products) <= 1:
+            return list(products)
+        sample = next(
+            (r for r in rows if all(f in url_fields_for(r) for f in products)), rows[0]
+        )
+        preselected = {
+            f
+            for f in products
+            if not str(filename_from_url(str(sample.get(f, ""))))
+            .lower()
+            .endswith((".laz", ".las"))
+        }
+        chooser = self.product_chooser or self._show_product_dialog
+        chosen = chooser(products, preselected, len(rows))
+        return chosen or None
+
+    def _show_product_dialog(
+        self, products: Dict[str, str], preselected, feature_count: int
+    ) -> Optional[List[str]]:
+        dialog = ProductChoiceDialog(self, products, set(preselected), feature_count)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return dialog.chosen_fields()
+
     def _on_download_selected_clicked(self) -> None:
         selected_indices = [
             self.results_tree.indexOfTopLevelItem(item)
@@ -1095,14 +1228,19 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
             )
             return
 
+        selected_rows = [
+            self.query_rows[i]
+            for i in selected_indices
+            if 0 <= i < len(self.query_rows)
+        ]
+        fields = self._choose_download_fields(selected_rows)
+        if fields is None:
+            return
         items = build_download_items_from_rows(
-            [
-                self.query_rows[i]
-                for i in selected_indices
-                if 0 <= i < len(self.query_rows)
-            ],
+            selected_rows,
             self.connection_manager.current_connection().display_name,
             layer_name=self._current_typename(),
+            fields=fields,
         )
         if not items:
             QMessageBox.information(
@@ -1123,6 +1261,7 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
             add_layer=self._add_layer,
             download_fn=self.download_fn,
             progress_runner=self.progress_runner,
+            group_base=[self.connection_manager.current_connection().display_name],
         )
 
     def _on_download_all_pages_clicked(self) -> None:
@@ -1141,7 +1280,7 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
             )
             return
 
-        gateway = self.connection_manager.current_connection().gateway("wfs")
+        gateway = self.connection_manager.current_gateway()
         count = self._current_count()
         try:
             total = wfs_get_hits(gateway.base_url, typename, fetch=self.fetch)
@@ -1188,10 +1327,14 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
             )
             return
 
+        fields = self._choose_download_fields(rows)
+        if fields is None:
+            return
         items = build_download_items_from_rows(
             rows,
             self.connection_manager.current_connection().display_name,
             layer_name=typename,
+            fields=fields,
         )
         if not items:
             QMessageBox.information(
@@ -1212,11 +1355,20 @@ class WfsSourceSelectWidget(QgsAbstractDataSourceWidget):
             add_layer=self._add_layer,
             download_fn=self.download_fn,
             progress_runner=self.progress_runner,
+            group_base=[self.connection_manager.current_connection().display_name],
         )
 
     def _add_layer(self, path: Path) -> None:
         kind = download_flow.guess_layer_kind(path)
         if kind == "raster":
-            self.addRasterLayer.emit(str(path), path.stem, "gdal")
+            emit_in_scope(
+                lambda: self.addRasterLayer.emit(str(path), path.stem, "gdal")
+            )
         elif kind == "vector":
-            self.addVectorLayer.emit(str(path), path.stem, "ogr")
+            emit_in_scope(lambda: self.addVectorLayer.emit(str(path), path.stem, "ogr"))
+        elif kind == "point_cloud":
+            emit_in_scope(
+                lambda: self.addPointCloudLayer.emit(
+                    str(path), path.name[: -len(".copc.laz")], "copc"
+                )
+            )

@@ -70,7 +70,6 @@ def _make_widget(qgis_app, fetch, download_fn):
     return BulkListingSourceSelectWidget(
         None,
         Qt.WindowType(0),
-        0,
         fetch=fetch,
         download_fn=download_fn,
         progress_runner=_sync_progress_runner,
@@ -97,10 +96,10 @@ def test_widget_construction_registers_both_providers(qgis_app):
     plugin = SigatePlugin(iface=None)
     plugin.initGui()
     try:
-        # The plugin now registers three providers: WM(T)S, Bulk Listing,
-        # and WFS. This count is expected to grow again as further tabs
+        # The plugin now registers four providers: WM(T)S, Bulk Listing,
+        # WFS and ArcGIS REST. This count is expected to grow again as further tabs
         # are added.
-        assert len(registry.providers()) == before + 3
+        assert len(registry.providers()) == before + 4
         assert len(registry.providersByKey("sigate_bulk_listing")) == 1
         assert len(registry.providersByKey("sigate_wmts_wms")) == 1
     finally:

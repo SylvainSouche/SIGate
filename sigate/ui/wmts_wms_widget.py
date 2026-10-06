@@ -60,11 +60,17 @@ from sigate.gateways.wmts_export import (
     estimate_export_size,
     wmts_def_cache_filename,
 )
-from sigate.gateways.wmts_wms import build_qgis_wms_uri, wmts_get_capabilities
+from sigate.gateways.wmts_wms import (
+    build_qgis_wms_uri,
+    wms_choose_crs,
+    wms_get_capabilities,
+    wmts_get_capabilities,
+)
 
 from . import settings as sigate_settings
 from .authcfg import ensure_authcfg_for_gateway
 from .connection_manager import ConnectionManager
+from .layer_groups import emit_in_scope, group_scope
 from .wmts_export_dialog import run_modal
 from .wmts_zoom_level_dialog import choose_zoom_level
 
@@ -126,6 +132,12 @@ class LayerChoice:
         connection string with no validation at all."""
         tilematrixset_id = self.layer_info.default_tilematrixset
         crs = "EPSG:3857"
+        if tilematrixset_id is None and self.layer_info.crs:
+            # A plain WMS layer: its own declared coordinate systems.
+            return None, wms_choose_crs(
+                self.layer_info.crs,
+                lambda c: QgsCoordinateReferenceSystem(c).isValid(),
+            )
         if tilematrixset_id and tilematrixset_id in self.tilematrixsets:
             declared_crs = self.tilematrixsets[tilematrixset_id].crs
             if QgsCoordinateReferenceSystem(declared_crs).isValid():
@@ -142,6 +154,7 @@ class LayerChoice:
             crs=crs,
             image_format=self.layer_info.default_format,
             authcfg=self.authcfg_id,
+            wms=tilematrixset_id is None and bool(self.layer_info.crs),
         )
 
 
@@ -191,11 +204,28 @@ def collect_layer_choices_for_gateway(
         )
 
     try:
-        layers, tilematrixsets = wmts_get_capabilities(
-            gateway_config.base_url,
-            fetch=capabilities_fetch,
-            lang=sigate_settings.get_locale(),
-        )
+        layers, tilematrixsets = [], {}
+        # A gateway declared as a plain WMS (extra service=wms) skips the
+        # WMTS attempt; an undeclared one tries WMTS first and falls back
+        # to WMS when that finds nothing - a user-added connection
+        # shouldn't need to say which it is.
+        wmts_error = None
+        if gateway_config.extra.get("service", "").lower() != "wms":
+            try:
+                layers, tilematrixsets = wmts_get_capabilities(
+                    gateway_config.base_url,
+                    fetch=capabilities_fetch,
+                    lang=sigate_settings.get_locale(),
+                )
+            except Exception as e:
+                wmts_error = e
+        if not layers:
+            try:
+                layers = wms_get_capabilities(
+                    gateway_config.base_url, fetch=capabilities_fetch
+                )
+            except Exception as wms_error:
+                raise wmts_error or wms_error
     except Exception as e:
         _log_exception(
             f"Could not fetch capabilities from {gateway_config.base_url!r}", e
@@ -218,11 +248,15 @@ class WmtsWmsSourceSelectWidget(QgsAbstractDataSourceWidget):
         self,
         parent=None,
         fl=Qt.WindowType(0),
-        widget_mode=0,
+        widget_mode=None,
         fetch=None,
         authcfg_provisioner=None,
     ) -> None:
-        super().__init__(parent, fl, widget_mode)
+        # None -> QGIS's own default; see WfsSourceSelectWidget.__init__.
+        if widget_mode is None:
+            super().__init__(parent, fl)
+        else:
+            super().__init__(parent, fl, widget_mode)
         self.fetch = fetch
         # Injectable for the same reason `fetch` is: production leaves this
         # None so collect_layer_choices_for_gateway falls back to the real
@@ -317,7 +351,10 @@ class WmtsWmsSourceSelectWidget(QgsAbstractDataSourceWidget):
         # one shared, generic name, rather than which specific layer
         # it actually was.
         layer_name = choice.layer_info.title or choice.layer_info.identifier
-        self.addRasterLayer.emit(uri, layer_name, WMS_PROVIDER_KEY)
+        with group_scope(choice.source_display_name):
+            emit_in_scope(
+                lambda: self.addRasterLayer.emit(uri, layer_name, WMS_PROVIDER_KEY)
+            )
 
     def _on_export_clicked(self) -> None:
         """Materializes a real, standalone GeoTIFF clipped to the
@@ -338,6 +375,18 @@ class WmtsWmsSourceSelectWidget(QgsAbstractDataSourceWidget):
             return
         choice = item.data(Qt.ItemDataRole.UserRole)
         tilematrixset_id, crs = choice.effective_crs_and_tilematrixset()
+        if tilematrixset_id is None and choice.layer_info.crs:
+            # A plain WMS layer: the export works through GDAL's WMTS
+            # driver and needs a tile matrix set.
+            QMessageBox.information(
+                self,
+                self.tr("Not available for WMS layers"),
+                self.tr(
+                    "Export as GeoTIFF needs a tiled (WMTS) layer. "
+                    "Use Add to map for this one."
+                ),
+            )
+            return
 
         target_crs = QgsCoordinateReferenceSystem(crs)
         if not target_crs.isValid():
@@ -493,4 +542,7 @@ class WmtsWmsSourceSelectWidget(QgsAbstractDataSourceWidget):
             return
 
         self.status_label.setText(self.tr("Exported: {}").format(out_path))
-        self.addRasterLayer.emit(out_path, Path(out_path).stem, "gdal")
+        with group_scope(choice.source_display_name):
+            emit_in_scope(
+                lambda: self.addRasterLayer.emit(out_path, Path(out_path).stem, "gdal")
+            )

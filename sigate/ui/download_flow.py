@@ -33,7 +33,7 @@ or need user interaction the way a real QDialog does.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, List, Optional
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Sequence
 
 from qgis.PyQt.QtWidgets import QMessageBox, QWidget
 
@@ -53,6 +53,7 @@ from sigate.download.mosaic import (
 from sigate.download.targets import DownloadTargets
 
 from . import settings as sigate_settings
+from .layer_groups import group_scope
 
 if TYPE_CHECKING:
     from .target_picker import TargetPicker
@@ -84,6 +85,8 @@ def guess_layer_kind(path: Path) -> Optional[str]:
         return "raster"
     if suffix in _VECTOR_EXTENSIONS:
         return "vector"
+    if path.name.lower().endswith(".copc.laz"):
+        return "point_cloud"
     return None
 
 
@@ -97,6 +100,7 @@ def run_download_and_add_layers(
     download_fn: Optional[Callable] = None,
     progress_runner: Optional[Callable] = None,
     log_fn: Optional[Callable[[str], None]] = None,
+    group_base: Sequence[str] = (),
 ) -> None:
     """Runs the full download-through-add-layer flow for `items` against
     `target_picker`'s current target selection. `set_status` and
@@ -185,8 +189,16 @@ def run_download_and_add_layers(
         o for o in succeeded if not pipeline.is_archive_file(o.path.name)
     ]
 
+    # Layer-tree placement (ui.layer_groups): group_base (the calling tab's
+    # source name) > archive name, or > layer folder (> product) for plain
+    # files - mirroring the on-disk source/category/layer folders. Opened
+    # here, around the post-download steps, because that is when layers
+    # are actually emitted, whichever way progress_runner ran the download.
     for outcome in archive_outcomes:
-        _process_archive(parent, outcome.path, targets, sevenzip_exe, add_layer, log_fn)
+        with group_scope(*group_base, archive_base_name(outcome.path.name)):
+            _process_archive(
+                parent, outcome.path, targets, sevenzip_exe, add_layer, log_fn
+            )
 
     if simple_outcomes:
         # Mosaic/pyramid-building is checked here across the whole batch
@@ -198,7 +210,12 @@ def run_download_and_add_layers(
         placed_paths = [
             pipeline.place_simple_file(o.path, targets) for o in simple_outcomes
         ]
-        _process_simple_files(parent, placed_paths, add_layer, log_fn)
+        groups = group_outcomes_by_product(simple_outcomes, placed_paths)
+        for product, group_paths in groups.items():
+            with group_scope(*group_base, group_paths[0].parent.name, product):
+                _process_simple_files(
+                    parent, group_paths, add_layer, log_fn, product=product
+                )
 
     if was_cancelled:
         set_status(
@@ -215,11 +232,27 @@ def run_download_and_add_layers(
     )
 
 
+def group_outcomes_by_product(
+    outcomes, placed_paths: List[Path]
+) -> Dict[Optional[str], List[Path]]:
+    """Splits a batch of downloaded plain files into one group per
+    DownloadItem.product (None for items with no product split - the
+    common case, one group). IGN's LiDAR HD metadata layer delivers a
+    tile's MNT, MNS and MNH in one batch - same format and resolution,
+    so they would otherwise look like a single tileable set and be
+    mosaicked together."""
+    groups: Dict[Optional[str], List[Path]] = {}
+    for outcome, path in zip(outcomes, placed_paths):
+        groups.setdefault(outcome.item.product, []).append(path)
+    return groups
+
+
 def _process_simple_files(
     parent: QWidget,
     placed_paths: List[Path],
     add_layer: Callable[[Path], None],
     log_fn: Callable[[str], None],
+    product: Optional[str] = None,
 ) -> None:
     """Offers a mosaic (and its pyramid) for a batch of plain,
     non-archive downloaded files that look like tiles of the same area -
@@ -243,6 +276,10 @@ def _process_simple_files(
     destination (already isolated per archive via archive_base_name)."""
     destination = Path(placed_paths[0]).parent
     product_key = extract_product_key(Path(placed_paths[0]).stem)
+    if product:
+        # one mosaic per product, never one shared name (see
+        # group_outcomes_by_product)
+        product_key = f"{product_key}_{product}"
 
     existing_mosaic = find_existing_mosaic(destination, product_key)
     if existing_mosaic:
@@ -263,7 +300,7 @@ def _process_simple_files(
         )
         if build_mosaic == QMessageBox.StandardButton.Yes:
             mosaic_path = build_vrt_mosaic(
-                placed_paths, destination, product_key, log=log_fn
+                raster_tile_paths(placed_paths), destination, product_key, log=log_fn
             )
             _build_overviews_best_effort(parent, mosaic_path, log_fn)
             add_layer(mosaic_path)

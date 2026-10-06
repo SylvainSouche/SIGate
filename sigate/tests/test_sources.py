@@ -109,7 +109,7 @@ def test_seed_basemap_at_has_wmts_only_no_wfs():
     assert BASEMAP_AT.gateway("wfs") is None
 
 
-def test_all_seed_sources_includes_all_seven_seeded_sources():
+def test_all_seed_sources_includes_all_twelve_seeded_sources():
     sources = all_seed_sources()
     keys = {s.key for s in sources}
     assert keys == {
@@ -120,6 +120,11 @@ def test_all_seed_sources_includes_all_seven_seeded_sources():
         "bkg_de",
         "pdok_nl",
         "basemap_at",
+        "piemonte_arpa",
+        "inrae_avalanches",
+        "fvg_it",
+        "nve_no",
+        "vda_it",
     }
 
 
@@ -302,3 +307,27 @@ def test_seed_norway_geonorge_base_url_matches_the_gateway_modules_own_constant(
 
     gw = NORWAY_GEONORGE.gateway("geonorge_catalog")
     assert gw.base_url == CATALOG_URL
+
+
+def test_sources_doc_lists_every_seeded_source_endpoint_and_collection():
+    """docs/sources.md is the human-readable list of every bundled backend
+    and what it serves. Its counts and descriptions come from live
+    fetches and can't be checked here, but the *inventory* can: a source,
+    gateway URL or STAC collection added to (or renamed in) seed.py
+    without a matching entry in that document fails here."""
+    from pathlib import Path
+
+    doc = (Path(__file__).parent.parent / "docs" / "sources.md").read_text(
+        encoding="utf-8"
+    )
+    missing = []
+    for source in all_seed_sources():
+        if source.key not in doc:
+            missing.append(f"source key {source.key}")
+        for gateway in source.gateways:
+            if gateway.base_url not in doc:
+                missing.append(f"{source.key}: {gateway.base_url}")
+            collection_id = gateway.extra.get("collection_id")
+            if collection_id and collection_id not in doc:
+                missing.append(f"{source.key}: collection {collection_id}")
+    assert missing == [], "docs/sources.md is missing: " + "; ".join(missing)

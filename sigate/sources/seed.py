@@ -350,6 +350,8 @@ GEODIENSTE_CH = SourceConfig(
                 # and extreme-event scenarios) - not just a binary
                 # hazard/no-hazard zone.
                 "capabilities_url_is_already_static": "false",
+                # A plain WMS: read with the WMS GetCapabilities parser.
+                "service": "wms",
             },
         ),
         GatewayConfig(
@@ -377,6 +379,39 @@ GEODIENSTE_CH = SourceConfig(
                 # the WMS layer names above are.
                 "endpoint_confidence": "domain_corrected_from_external_metadata_typenames_unverified",
             },
+        ),
+        # Naturereigniskataster: the cantons' register of past natural
+        # events (floods, debris flows, landslides, rockfall and - the
+        # reason it is here - recorded avalanches, "prozessraum_lawine").
+        # Two datasets: the base one and the "umfassend" (comprehensive)
+        # one with point/line/area observations. Both WFS 2.0.0, checked
+        # live: 13 and 16 feature types in EPSG:2056 (LV95), 28,066
+        # prozessraum_lawine features in the base dataset. MapServer
+        # backed: it silently ignores a CQL_FILTER (the query returned
+        # the full count for an impossible filter), so the WFS tab's
+        # query grid is not narrowed by the Filter panel on these two;
+        # "Add to map" is unaffected (QGIS translates the expression
+        # itself).
+        GatewayConfig(
+            gateway_type="wfs",
+            base_url="https://geodienste.ch/db/naturereigniskataster_v1_0_0/deu",
+            extra={
+                "role": "Naturereigniskataster (recorded natural events)",
+                "cql_filter_supported": "false",
+            },
+        ),
+        GatewayConfig(
+            gateway_type="wfs",
+            base_url="https://geodienste.ch/db/naturereigniskataster_umfassend_v1_0_0/deu",
+            extra={
+                "role": "Naturereigniskataster umfassend (with observations)",
+                "cql_filter_supported": "false",
+            },
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geodienste.ch/db/naturereigniskataster_v1_0_0/deu",
+            extra={"role": "Naturereigniskataster (WMS)", "service": "wms"},
         ),
         GatewayConfig(
             gateway_type="stac",
@@ -575,6 +610,121 @@ BASEMAP_AT = SourceConfig(
 )
 
 
+PIEMONTE_ARPA = SourceConfig(
+    key="piemonte_arpa",
+    display_name="Arpa Piemonte - SIVA avalanches (Italy)",
+    country="Italy",
+    gateways=[
+        # Piemonte's regional environmental agency publishes its avalanche
+        # information system (SIVA: documented avalanche events, the
+        # Catasto Valanghe, etc.) through an ArcGIS Server MapServer. It
+        # also has a WMS, but no WFS - the ArcGIS REST query endpoint is
+        # what lets features be filtered and downloaded rather than only
+        # drawn. Found by analysing the service's own web viewer; the
+        # listing was fetched live (21 layers, 14 queryable).
+        GatewayConfig(
+            gateway_type="arcgis_rest",
+            base_url="https://webgis.arpa.piemonte.it/server/rest/services/rischi_naturali/SIVA/MapServer",
+            extra={"role": "public"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://webgis.arpa.piemonte.it/server/services/rischi_naturali/SIVA/MapServer/WMSServer",
+            extra={"role": "WMS (drawn map)", "service": "wms"},
+        ),
+    ],
+)
+
+
+INRAE_AVALANCHES = SourceConfig(
+    key="inrae_avalanches",
+    display_name="INRAE avalanches - CLPA, EPA (France)",
+    country="France",
+    gateways=[
+        # The French avalanche location map (CLPA) and the avalanche
+        # events survey (EPA) from INRAE's own GeoServer, 38 feature
+        # types (clpa_zonpi: 50,089 polygons; clpa_linpi: 26,946 lines).
+        # This is the stand-in while the CLPA layers that used to be
+        # served by the IGN Geoplateforme are missing from it after the
+        # geoportail -> cartes.gouv.fr migration. GeoServer: CQL_FILTER
+        # confirmed live (an impossible filter returns 0). Several layers
+        # are published in EPSG:3857 or EPSG:4326 - the WFS tab reads each
+        # feature type's own default CRS.
+        GatewayConfig(
+            gateway_type="wfs",
+            base_url="https://carto-service.inrae.fr/geoserver/siavalanches/wfs",
+            extra={"role": "public", "cql_filter_confirmed": "true"},
+        ),
+    ],
+)
+
+
+FVG_IT = SourceConfig(
+    key="fvg_it",
+    display_name="Friuli Venezia Giulia - risk zones (Italy)",
+    country="Italy",
+    gateways=[
+        # The region's ZONE_RISC workspace: surveyed and photo-interpreted
+        # avalanches (CV_VALANGHE_RILEVATE: 3,875 features), avalanche
+        # danger zones, probable avalanche tracks, plus wildfire layers.
+        # 14 feature types, GeoServer: CQL_FILTER confirmed live. Feature
+        # types declare EPSG:6708 as default CRS (a geographic datum
+        # variant) - not a case the plugin has been exercised on.
+        GatewayConfig(
+            gateway_type="wfs",
+            base_url="https://serviziogc.regione.fvg.it/geoserver/ZONE_RISC/wfs",
+            extra={"role": "public", "cql_filter_confirmed": "true"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://serviziogc.regione.fvg.it/geoserver/ZONE_RISC/wms",
+            extra={"role": "WMS (drawn map)", "service": "wms"},
+        ),
+    ],
+)
+
+
+NVE_NO = SourceConfig(
+    key="nve_no",
+    display_name="NVE avalanche events - Skredhendelser (Norway)",
+    country="Norway",
+    gateways=[
+        # NVE's landslide/avalanche event register. The ArcGIS Enterprise
+        # service publishes a WMS but no WFS (the WFSServer path answers
+        # with an error page); its REST endpoint is open: 10 layers
+        # (release and run-out points/areas, fatalities, consequences,
+        # snow avalanche), 26,218 records in layer 9, EPSG:25833.
+        GatewayConfig(
+            gateway_type="arcgis_rest",
+            base_url="https://kart.nve.no/enterprise/rest/services/Skredhendelser1/MapServer",
+            extra={"role": "public"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://kart.nve.no/enterprise/services/Skredhendelser1/MapServer/WMSServer",
+            extra={"role": "WMS (drawn map)", "service": "wms"},
+        ),
+    ],
+)
+
+
+VDA_IT = SourceConfig(
+    key="vda_it",
+    display_name="Valle d'Aosta - avalanche cadastre (Italy)",
+    country="Italy",
+    gateways=[
+        # The region's avalanche cadastre (Catasto Valanghe) and snow
+        # gauge poles. WMS only (no WFS found); answers a 1.3.0
+        # GetCapabilities live.
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://servizisct.regione.vda.it/ows/public/CatastoValanghe",
+            extra={"role": "public", "service": "wms"},
+        ),
+    ],
+)
+
+
 def all_seed_sources():
     """Every bundled default source config. A function rather than a
     module-level list, so future seed data can be assembled conditionally
@@ -587,4 +737,9 @@ def all_seed_sources():
         BKG_DE,
         NETHERLANDS_PDOK,
         BASEMAP_AT,
+        PIEMONTE_ARPA,
+        INRAE_AVALANCHES,
+        FVG_IT,
+        NVE_NO,
+        VDA_IT,
     ]

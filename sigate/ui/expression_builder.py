@@ -218,6 +218,32 @@ def substitute_tokens(
     return normalize_spatial_function_names(result)
 
 
+def substitute_tokens_for_qgis(
+    expression_text: str, map_extent_wkt: Optional[str]
+) -> str:
+    """The counterpart of substitute_tokens for the "Add to map" path,
+    where the filter is handed to QGIS's own native WFS provider, which
+    parses a QGIS *expression*, not CQL.
+
+    Confirmed live against IGN's LiDAR HD metadata layer: given SIGate's
+    CQL text (WITHIN(geom, POLYGON((...)))) the provider silently drops
+    the filter and loads every feature, with no error; given the same
+    predicate as a QGIS expression it returns exactly what the server's
+    own CQL query does (102 features WITHIN, 151 INTERSECTS for the same
+    extent). So here $geom becomes $geometry (QGIS's geometry reference,
+    not a server-side field name) and @map_extent becomes
+    geom_from_wkt('...') - a function call over a quoted string, where
+    CQL wants a bare literal. The spatial function names themselves
+    (within, intersects, contains, ...) are identical in both languages;
+    ST_-prefixed aliases are normalized the same way. map_extent_wkt must
+    be in the layer's CRS with QGIS's own x,y order - not the
+    authority-order swap the CQL path applies for geographic CRSes."""
+    result = expression_text.replace(GEOM_TOKEN, "$geometry")
+    if map_extent_wkt is not None:
+        result = result.replace(MAP_EXTENT_TOKEN, f"geom_from_wkt('{map_extent_wkt}')")
+    return normalize_spatial_function_names(result)
+
+
 class ExpressionBuilderWidget(QWidget):
     """The composite fields/values/expression-editor widget."""
 

@@ -1,6 +1,6 @@
 # SIGate — Spatialized Infrastructure Gateway
 
-A QGIS plugin that adds three new categories to QGIS's native **Data Source Manager** for browsing, searching, and downloading geospatial data directly from national mapping agencies — no separate browser tab, no manual download-then-import step.
+A QGIS plugin that adds four new categories to QGIS's native **Data Source Manager** for browsing, searching, and downloading geospatial data directly from national mapping agencies — no separate browser tab, no manual download-then-import step.
 
 - **WFS** — browse feature types, filter with a real query builder, add to the map or download linked files.
 - **WM(T)S** — browse and add raster layers via QGIS's own native WMS/WMTS provider, or export a clipped GeoTIFF of the current map view directly from the source.
@@ -25,6 +25,7 @@ Everything lives under [`sigate/docs/`](sigate/docs/):
 | `spec.md` | The current, real architecture — what's implemented and how, checked against the actual code. |
 | `dev_workflow.md` | Coding rules, plus a detailed, append-only history of every fix and feature, in the order they actually happened. |
 | `version.md` | One entry per delivered version — "what shipped in version X." |
+| `sources.md` | Every bundled backend and the content it serves — endpoints, tabs, auth, and what each actually offers (live-checked snapshot). |
 | `candidate_sources.md` | Research on further national data sources: what's integrated, what's deferred, and why. |
 | `install_guide.md` | End-user install instructions and troubleshooting. |
 | `user_guide.md` | End-user feature walkthrough. |

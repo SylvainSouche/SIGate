@@ -638,3 +638,107 @@ def test_revisiting_plain_tiles_with_an_existing_mosaic_missing_overviews_builds
 
     assert overview_calls == [existing_mosaic]
     assert added == [existing_mosaic]
+
+
+def test_group_outcomes_by_product_keeps_mnt_mns_mnh_apart():
+    """IGN's LiDAR HD metadata layer delivers a tile's MNT, MNS and MNH
+    in one batch - same format and resolution, so they would otherwise
+    look like one tileable set and be mosaicked together."""
+    from pathlib import Path
+
+    from sigate.download.pipeline import DownloadItem, DownloadOutcome
+    from sigate.ui.download_flow import group_outcomes_by_product
+
+    outcomes, paths = [], []
+    for product in ("MNT", "MNS", "MNH"):
+        for col in ("0998", "0999"):
+            path = Path(f"/r/LHD_FXX_{col}_6542_{product}.tif")
+            outcomes.append(
+                DownloadOutcome(
+                    item=DownloadItem(url="u", filename=path.name, product=product),
+                    path=path,
+                    already_existed=False,
+                )
+            )
+            paths.append(path)
+
+    groups = group_outcomes_by_product(outcomes, paths)
+
+    assert sorted(groups) == ["MNH", "MNS", "MNT"]
+    assert all(len(v) == 2 for v in groups.values())
+    assert all(p.name.endswith(f"_{k}.tif") for k, v in groups.items() for p in v)
+
+
+def test_items_without_a_product_stay_one_group():
+    from pathlib import Path
+
+    from sigate.download.pipeline import DownloadItem, DownloadOutcome
+    from sigate.ui.download_flow import group_outcomes_by_product
+
+    outcomes = [
+        DownloadOutcome(
+            item=DownloadItem(url="u", filename=n), path=Path(n), already_existed=False
+        )
+        for n in ("a.tif", "b.tif")
+    ]
+    groups = group_outcomes_by_product(outcomes, [Path("a.tif"), Path("b.tif")])
+    assert list(groups) == [None] and len(groups[None]) == 2
+
+
+def test_guess_layer_kind_treats_copc_laz_as_point_cloud():
+    from pathlib import Path
+
+    from sigate.ui.download_flow import guess_layer_kind
+
+    assert guess_layer_kind(Path("x_PTS.copc.laz")) == "point_cloud"
+    assert guess_layer_kind(Path("x.laz")) is None
+    assert guess_layer_kind(Path("x.tif")) == "raster"
+
+
+def test_flow_adds_each_product_into_its_own_layer_tree_group(
+    qgis_app, tmp_path, no_block_message_boxes, monkeypatch
+):
+    """The group a layer is added into is decided by the flow: group_base
+    (the tab's source name) > layer folder > product."""
+    from sigate.download.pipeline import DownloadItem
+    from sigate.ui.download_flow import run_download_and_add_layers
+    from sigate.ui.layer_groups import current_group_path
+
+    def fake_download(
+        url, dest_dir, filename, progress_callback=None, should_continue=None
+    ):
+        path = Path(dest_dir) / filename
+        path.write_bytes(b"data")
+        return path
+
+    seen = []
+    picker = _make_target_picker(qgis_app, tmp_path)
+    run_download_and_add_layers(
+        _FakeParent(),
+        [
+            DownloadItem(
+                url="https://x/a.tif",
+                filename="LHD_0998_MNT.tif",
+                subdirectory="IGN (France)/raster/layer_x",
+                product="MNT",
+            ),
+            DownloadItem(
+                url="https://x/b.tif",
+                filename="LHD_0998_MNS.tif",
+                subdirectory="IGN (France)/raster/layer_x",
+                product="MNS",
+            ),
+        ],
+        picker,
+        None,
+        set_status=lambda s: None,
+        add_layer=lambda path: seen.append((path.name, current_group_path())),
+        download_fn=fake_download,
+        progress_runner=_sync_progress_runner,
+        group_base=["IGN (France)"],
+    )
+
+    assert sorted(seen) == [
+        ("LHD_0998_MNS.tif", ["IGN (France)", "layer_x", "MNS"]),
+        ("LHD_0998_MNT.tif", ["IGN (France)", "layer_x", "MNT"]),
+    ]

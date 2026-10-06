@@ -44,7 +44,9 @@ test-pure:
 		--ignore=$(PLUGIN_DIR)/tests/test_wmts_zoom_level_dialog.py \
 		--ignore=$(PLUGIN_DIR)/tests/test_download_task.py \
 		--ignore=$(PLUGIN_DIR)/tests/test_wmts_export_task.py \
-		--ignore=$(PLUGIN_DIR)/tests/test_wmts_export_dialog.py
+		--ignore=$(PLUGIN_DIR)/tests/test_wmts_export_dialog.py \
+		--ignore=$(PLUGIN_DIR)/tests/test_layer_groups.py \
+		--ignore=$(PLUGIN_DIR)/tests/test_arcgis_rest_widget.py
 
 lint:
 	ruff check $(PLUGIN_DIR)/

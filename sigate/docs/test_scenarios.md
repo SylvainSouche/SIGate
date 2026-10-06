@@ -323,14 +323,14 @@ Directly answers a follow-up question about whether a two-level hierarchy could 
 ## TC9 — WFS tab: browse and filter
 1. Open Data Source Manager → **SIGate WFS**.
 2. Confirm the feature-type list populates (a real, possibly large list from IGN's live WFS capabilities — expect this to take a moment).
-3. Type `dalle` into the filter field.
+3. Type `lidar` into the filter field.
 
-**Expected**: the list narrows to feature types whose name or title contains "dalle" — confirm `IGNF_MNS-LIDAR-HD:dalle` appears if IGN's WFS still offers it.
+**Expected**: the list narrows to feature types whose name or title contains "lidar" — confirm `IGNF_LIDAR-HD_METADONNEE:metadata` appears. (The older `IGNF_*-LIDAR-HD:dalle` layers were retired by IGN; they should *not* appear.)
 
 ---
 
 ## TC10 — WFS tab: add a plain vector layer
-1. Select a feature type you'd expect to be manageable in size (avoid `:dalle` itself — it's very large, better suited to TC11).
+1. Select a feature type you'd expect to be manageable in size (avoid the LiDAR HD metadata layer — about 500,000 features, better suited to TC11).
 2. Leave any filter blank. Click **Add to map**.
 
 **Expected**: QGIS's own native WFS provider takes over and loads the layer normally — confirm it actually renders features and pans/zooms like any other QGIS vector layer.
@@ -349,19 +349,57 @@ Directly answers a follow-up question about whether a two-level hierarchy could 
 ---
 
 ## TC10c — WFS tab: downloading linked files
-1. Select `IGNF_MNS-LIDAR-HD:dalle` (or another layer known to carry a download link per feature). Click **Query features**.
+1. Select `IGNF_LIDAR-HD_METADONNEE:metadata`, zoom the map to a small area (a few km²), and click **Query features**.
 
-**Expected**: a results table appears with real feature data. **Download selected** becomes enabled, since this layer's rows carry a `url` field.
+**Expected**: a results table appears with real feature data (columns include `url_mnt`, `url_mns`, `url_mnh`, `url_npl`). **Download selected** becomes enabled, since these columns hold web addresses.
 
 2. Select one result row. Set a central repository (and destination, if testing that combination). Click **Download selected**.
 
-**Expected**: the linked file downloads via the same background-task pipeline as the Bulk Download tab — check it lands in the same `source/category/layer` subfolder structure (here, "layer" should be the WFS typename, e.g. `IGNF_MNS-LIDAR-HD_dalle`), and is added to the map.
+**Expected**: a dialog lists MNT, MNS, MNH and NPL with the three rasters ticked and NPL unticked. Cancelling it downloads nothing. Accept with MNT only: one `.tif` (about 15 MB, named from the `FILENAME=` in the link, e.g. `LHD_FXX_0998_6542_MNT_O_0M50_LAMB93_IGN69.tif`) downloads via the same background-task pipeline as the Bulk Download tab, lands under `source/raster/layer` (here "layer" is the WFS typename, e.g. `IGNF_LIDAR-HD_METADONNEE_metadata`), and is added to the map.
 
-3. Repeat with a plain vector layer instead (not `:dalle`).
+3. Select 2+ rows and tick MNT, MNS and MNH.
+
+**Expected**: all tiles download; if offered a mosaic, it is offered **separately for each product** (three mosaics named per product), never one mosaic mixing MNT/MNS/MNH.
+
+4. Select one row and tick only NPL (point cloud, about 340 MB — check the size warning behaviour: it may not appear because the raster links carry no declared size).
+
+**Expected**: a `.copc.laz` lands under `source/point_cloud/layer` and is added to the map as a **point-cloud layer**.
+
+5. Look at the Layers panel after steps 2–4.
+
+**Expected**: nothing is loose at the top level. Layers sit in `IGN (France) › IGNF_LIDAR-HD_METADONNEE_metadata › MNT` (and `MNS`, `NPL` groups for the other products); downloading more tiles reuses those groups rather than creating duplicates; a built mosaic appears instead of its tiles.
+
+6. Repeat with a plain vector layer instead.
+
+**Expected**: **Download selected** stays disabled after querying, since that layer's rows have no download link. **Add to map** on a WFS layer, and adding a WM(T)S layer, put the layer in a group named after the source (`IGN (France)`).
 
 **Expected**: **Download selected** stays disabled after querying, since that layer's rows have no download link.
 
 ---
+
+## TC10d — ArcGIS REST tab: browse, filter, add
+
+1. Open Data Source Manager → **SIGate ArcGIS REST**; connection "Arpa Piemonte - SIVA avalanches (Italy)". **Expected:** 14 queryable layers, group layers shown as `GROUP › Layer`.
+2. Select "Valanghe documentate". **Expected:** polygon, EPSG:32632, 14 fields.
+3. **Query features.** **Expected:** `1-200 of 4091`; Next page works.
+4. **Filter...** → `comune = '<a value seen in the results>'`, Query. **Expected:** a smaller count.
+5. Tick **Limit to current map extent** with the map zoomed on a valley; Query. **Expected:** only features in view.
+6. **Add to map** with nothing selected. **Expected:** one vector layer, in a group named after the source, with the filtered feature count.
+7. Select two rows, **Add to map**. **Expected:** a layer named "… (2 selected)" with 2 features.
+8. Enter an invalid where clause. **Expected:** a clear "Query failed" message and an empty grid.
+
+## TC10e — WM(T)S tab: a plain WMS source
+
+1. Open **SIGate WM(T)S**; connection "Valle d'Aosta - avalanche cadastre (Italy)". **Expected:** 34 layers listed (no WMTS involved).
+2. Select "Catasto Valanghe", **Add to map**. **Expected:** a raster layer drawn from the WMS, in a group named after the source.
+3. Choose the Gefahrenkarten "WM(T)S" connection. **Expected:** about 51 layers, including `gefahrengebiet_lawine`.
+4. With a WMS layer selected, **Export clipped area as GeoTIFF**. **Expected:** a message that export needs a tiled (WMTS) layer.
+
+## TC10f — WFS tab: several WFS connections in one source
+
+1. Open **SIGate WFS**; the combo lists three geodienste.ch entries (Gefahrenkarten, Naturereigniskataster, Naturereigniskataster umfassend).
+2. Pick each. **Expected:** 40, 13 and 16 feature types respectively - each its own list.
+3. On Naturereigniskataster pick `prozessraum_lawine`, **Query features**, then **Add to map**. **Expected:** 28,066 features, EPSG:2056. (A Filter-panel filter does not narrow the query grid on this server; it does on Add to map.)
 
 ## TC11 — WFS tab: the Filter panel — attribute expressions
 1. Select `IGNF_MNS-LIDAR-HD:dalle` (or another large layer). Click **Filter...** *without* querying first.
@@ -379,7 +417,7 @@ Directly answers a follow-up question about whether a two-level hierarchy could 
 ---
 
 ## TC11b — WFS tab: the Filter panel — spatial predicates (`@map_extent`)
-This is the one area with a real, documented **asymmetry** between the two actions — test both halves separately and expect them to behave *differently*.
+The two actions resolve the filter differently on purpose (CQL for the server, a QGIS expression for QGIS's own provider) — test both halves, and on a geographic-CRS layer (e.g. `IGNF_LIDAR-HD_METADONNEE:metadata`, EPSG:4326) as well as a projected one (e.g. a BDTOPO layer, Lambert-93).
 
 1. Pan/zoom the map to a specific area with known features in it. Open **Filter...**. Type `WITHIN($geom, @map_extent)` (note: `WITHIN`, not `ST_Within` — the editor's own autocomplete should suggest the correct bare name; if it still suggests an `ST_`-prefixed name, that's a real regression). Click **Query features**.
 
@@ -387,7 +425,11 @@ This is the one area with a real, documented **asymmetry** between the two actio
 
 2. With the same filter still active, click **Add to map** instead (no row selection).
 
-**Expected**: **this is expected to *not* work correctly yet** — a documented, known gap. QGIS's own expression engine needs the geometry wrapped differently (`geom_from_wkt(...)`) than what gets sent for CQL, and that path hasn't been fixed. Confirm what actually happens (likely: either no error but the wrong/full feature set gets added, or a QGIS expression parse error) and report exactly what you see — this is genuinely useful data even though it's a known limitation, since "exactly how it currently fails" hasn't been directly observed yet.
+**Expected**: the added layer contains only features within the map view — **not** the whole layer. Compare the feature count with step 1's result for the same view (for the LiDAR HD metadata layer, a view around Chamonix gives about 100 tiles within and about 150 intersecting). Pan away afterwards: the already-added layer should keep exactly those features (the filter, not just the canvas, is restricting it). Right-click the layer → Filter/Properties to see the filter reads `WITHIN($geometry, geom_from_wkt('POLYGON((...))'))` with coordinates in lon,lat (x,y) order for a geographic CRS.
+
+3. Repeat step 2 with `INTERSECTS($geom, @map_extent)` and with `ST_Within($geom, @map_extent)` (the `ST_` alias is rewritten to `WITHIN`).
+
+**Expected**: INTERSECTS returns at least as many features as WITHIN; `ST_Within` behaves exactly like `WITHIN`.
 
 ---
 
@@ -429,7 +471,7 @@ This is the one area with a real, documented **asymmetry** between the two actio
 ---
 
 ## TC11g — WFS tab: download ALL pages
-1. Select `IGNF_MNS-LIDAR-HD:dalle` (or another layer with download links). Click **Download ALL pages**.
+1. Select `IGNF_LIDAR-HD_METADONNEE:metadata` with a small map extent (or another layer with download links). Click **Download ALL pages**. For a multi-link layer the product dialog appears first.
 
 **Expected**: confirmation shown with the real total feature count if the server provides one. Once confirmed, every page is fetched and every feature with a download link is downloaded (background task, same progress dialog as Bulk Listing) and added as a layer, regardless of any filter currently displayed.
 

@@ -117,6 +117,10 @@ class WmtsLayerInfo:
     styles: List[str] = field(default_factory=list)
     tilematrixset_links: List[str] = field(default_factory=list)
     formats: List[str] = field(default_factory=list)
+    crs: List[str] = field(default_factory=list)
+    """The coordinate systems a plain WMS layer can be served in (its
+    own CRS/SRS declarations, inherited from parent layers). Empty for a
+    WMTS layer, whose CRS comes from its tile matrix set instead."""
 
     @property
     def default_style(self) -> str:
@@ -241,6 +245,149 @@ def wmts_get_capabilities(
     return layers, tilematrixsets
 
 
+_SERVICE_WMS = "WMS"
+_WMS_VERSION = "1.3.0"
+# Preference order when a WMS layer offers several coordinate systems:
+# web-mercator first (QGIS handles it everywhere), then plain lon/lat.
+_WMS_PREFERRED_CRS = ("EPSG:3857", "EPSG:4326")
+_WMS_PREFERRED_FORMATS = ("image/png", "image/png8", "image/jpeg")
+
+
+def build_wms_capabilities_url(base_url: str) -> str:
+    """A WMS 1.3.0 GetCapabilities request URL."""
+    params = {
+        PARAM_SERVICE: _SERVICE_WMS,
+        PARAM_VERSION: _WMS_VERSION,
+        PARAM_REQUEST: REQUEST_GET_CAPABILITIES,
+    }
+    separator = "&" if "?" in base_url else "?"
+    return f"{base_url}{separator}{urlencode(params)}"
+
+
+def wms_plain_url(base_url: str) -> str:
+    """The endpoint without any OGC service/request/version parameters -
+    what QGIS's own WMS connection dialog stores, and what its provider
+    expects (it adds those parameters itself). Other query parameters
+    (for example a mapserver's `MAP=`) are kept."""
+    from urllib.parse import parse_qsl, urlsplit, urlunsplit
+
+    parts = urlsplit(base_url)
+    kept = [
+        (k, v)
+        for k, v in parse_qsl(parts.query, keep_blank_values=True)
+        if k.lower() not in ("service", "request", "version")
+    ]
+    return urlunsplit(parts._replace(query=urlencode(kept)))
+
+
+def _wms_pick_format(formats: List[str]) -> List[str]:
+    """The formats in order of preference, so the first is what QGIS is
+    asked for; anything unlisted keeps the server's own order."""
+    ordered = [f for f in _WMS_PREFERRED_FORMATS if f in formats]
+    return ordered + [f for f in formats if f not in ordered]
+
+
+def wms_get_capabilities(base_url: str, fetch=None) -> List[WmtsLayerInfo]:
+    """Fetches and parses a WMS GetCapabilities response (1.3.0 or 1.1.1
+    - namespace-agnostic): every layer that has a <Name> and so can be
+    requested, with its title, styles, coordinate systems (inherited from
+    parent layers, as the standard specifies) and the server's GetMap
+    formats. Group layers without a name are skipped, but their title is
+    kept in front of their children's titles so that a flat list stays
+    readable ("Group / Layer")."""
+    fetch = fetch or _default_fetch
+    raw = fetch(build_wms_capabilities_url(base_url))
+    root = ET.fromstring(raw)
+    if _local(root.tag) == "ServiceExceptionReport":
+        message = " ".join(
+            _text(el) for el in root.iter() if _local(el.tag) == "ServiceException"
+        )
+        raise ValueError(message or "WMS service exception")
+
+    capability = next((el for el in root if _local(el.tag) == "Capability"), None)
+    if capability is None:
+        return []
+    formats: List[str] = []
+    request = next((el for el in capability if _local(el.tag) == "Request"), None)
+    get_map = (
+        next((el for el in request if _local(el.tag) == "GetMap"), None)
+        if request is not None
+        else None
+    )
+    if get_map is not None:
+        formats = [
+            _text(el) for el in get_map if _local(el.tag) == "Format" and _text(el)
+        ]
+    formats = _wms_pick_format(formats)
+
+    layers: List[WmtsLayerInfo] = []
+
+    def walk(
+        element,
+        inherited_crs: List[str],
+        inherited_styles: List[str],
+        path: List[str],
+        depth: int = 0,
+    ):
+        crs = list(inherited_crs)
+        styles = list(inherited_styles)
+        name = title = None
+        for child in element:
+            local = _local(child.tag)
+            if local == "Name" and name is None:
+                name = _text(child)
+            elif local == "Title" and title is None:
+                title = _text(child)
+            elif local in ("CRS", "SRS"):
+                for token in _text(child).split():
+                    if token not in crs:
+                        crs.append(token)
+            elif local == "Style":
+                style_name = next(
+                    (_text(s) for s in child if _local(s.tag) == "Name"), ""
+                )
+                if style_name and style_name not in styles:
+                    styles.append(style_name)
+        # The single top-level layer is only the service's own title ("GeoServer
+        # Web Map Service"): not worth repeating in front of every layer.
+        label_path = path + ([title] if title and depth > 0 else [])
+        if name:
+            layers.append(
+                WmtsLayerInfo(
+                    identifier=name,
+                    title=" / ".join(label_path[-2:])
+                    if len(label_path) > 1
+                    else (title or ""),
+                    styles=styles,
+                    tilematrixset_links=[],
+                    formats=list(formats),
+                    crs=crs,
+                )
+            )
+        for child in element:
+            if _local(child.tag) == "Layer":
+                walk(child, crs, styles, label_path, depth + 1)
+
+    for top in capability:
+        if _local(top.tag) == "Layer":
+            walk(top, [], [], [])
+    return layers
+
+
+def wms_choose_crs(declared: List[str], is_valid=lambda crs: True) -> str:
+    """A coordinate system to request a WMS layer in: web-mercator, then
+    lon/lat, then whatever else the layer declares, skipping anything
+    `is_valid` rejects (an authority QGIS doesn't know)."""
+    candidates = [c.upper() for c in declared if c.upper().startswith("EPSG:")]
+    for preferred in _WMS_PREFERRED_CRS:
+        if preferred in candidates and is_valid(preferred):
+            return preferred
+    for crs in candidates:
+        if is_valid(crs):
+            return crs
+    return "EPSG:3857"
+
+
 def build_capabilities_url(base_url: str, lang: Optional[str] = None) -> str:
     """Builds a plain GetCapabilities request URL for embedding as the
     `url` parameter of a QGIS provider connection string."""
@@ -263,8 +410,13 @@ def build_qgis_wms_uri(
     crs: str = "EPSG:3857",
     image_format: str = "image/png",
     authcfg: Optional[str] = None,
+    wms: bool = False,
 ) -> str:
     """Builds a connection string for QGIS's native "wms" data provider.
+
+    `wms=True` marks a plain WMS layer (as opposed to WMTS): the url is
+    the bare endpoint, the way QGIS's own WMS connections store it,
+    instead of a WMTS GetCapabilities URL.
 
     Only characters that would actually conflict with the outer
     key=value&key=value delimiter structure are escaped (literal '=' and
@@ -286,7 +438,9 @@ def build_qgis_wms_uri(
     This module never sees or handles the actual credential itself - that
     stays inside QGIS's own auth manager throughout.
     """
-    capabilities_url = build_capabilities_url(base_url)
+    capabilities_url = (
+        wms_plain_url(base_url) if wms else build_capabilities_url(base_url)
+    )
     params = [
         ("crs", crs),
         ("format", image_format),

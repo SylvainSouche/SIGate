@@ -365,3 +365,31 @@ def test_sql_editor_has_field_names_registered_after_populate(qgis_app):
     )
 
     assert set(widget.sql_editor.fieldNames()) == {"name", "id_chantier"}
+
+
+def test_substitute_tokens_for_qgis_builds_a_qgis_expression_not_cql():
+    """Confirmed live against IGN's LiDAR HD metadata layer: QGIS's native
+    WFS provider silently drops a CQL filter (bare POLYGON literal) and
+    loads everything, but honours the same predicate as a QGIS expression
+    - geom_from_wkt('...') over $geometry."""
+    from sigate.ui.expression_builder import substitute_tokens_for_qgis
+
+    wkt = "Polygon ((6.8 45.9, 6.95 45.9, 6.95 46, 6.8 46, 6.8 45.9))"
+    result = substitute_tokens_for_qgis("ST_Within($geom, @map_extent)", wkt)
+
+    assert result == f"WITHIN($geometry, geom_from_wkt('{wkt}'))"
+    assert "$geom," not in result and "@map_extent" not in result
+
+
+def test_substitute_tokens_for_qgis_leaves_plain_attribute_filters_alone():
+    from sigate.ui.expression_builder import substitute_tokens_for_qgis
+
+    assert (
+        substitute_tokens_for_qgis("code_mission = '21LHD5QK2'", None)
+        == "code_mission = '21LHD5QK2'"
+    )
+    # no extent supplied: the token is left as typed rather than guessed
+    assert (
+        substitute_tokens_for_qgis("intersects($geom, @map_extent)", None)
+        == "intersects($geometry, @map_extent)"
+    )

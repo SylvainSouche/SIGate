@@ -53,6 +53,7 @@ from sigate.translation import TranslationStore
 from . import download_flow
 from . import settings as sigate_settings
 from .connection_manager import ConnectionManager
+from .layer_groups import emit_in_scope
 from .target_picker import TargetPicker
 
 # One entry per gateway type this tab knows how to browse - both satisfy
@@ -78,12 +79,16 @@ class BulkListingSourceSelectWidget(QgsAbstractDataSourceWidget):
         self,
         parent=None,
         fl=Qt.WindowType(0),
-        widget_mode=0,
+        widget_mode=None,
         fetch=None,
         download_fn=None,
         progress_runner=None,
     ) -> None:
-        super().__init__(parent, fl, widget_mode)
+        # None -> QGIS's own default; see WfsSourceSelectWidget.__init__.
+        if widget_mode is None:
+            super().__init__(parent, fl)
+        else:
+            super().__init__(parent, fl, widget_mode)
         self.fetch = fetch
         self.download_fn = download_fn
         self.progress_runner = progress_runner
@@ -537,11 +542,14 @@ class BulkListingSourceSelectWidget(QgsAbstractDataSourceWidget):
             add_layer=self._add_layer,
             download_fn=self.download_fn,
             progress_runner=self.progress_runner,
+            group_base=[source_display_name],
         )
 
     def _add_layer(self, path: Path) -> None:
         kind = download_flow.guess_layer_kind(path)
         if kind == "raster":
-            self.addRasterLayer.emit(str(path), path.stem, "gdal")
+            emit_in_scope(
+                lambda: self.addRasterLayer.emit(str(path), path.stem, "gdal")
+            )
         elif kind == "vector":
-            self.addVectorLayer.emit(str(path), path.stem, "ogr")
+            emit_in_scope(lambda: self.addVectorLayer.emit(str(path), path.stem, "ogr"))

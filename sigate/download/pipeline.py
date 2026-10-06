@@ -62,6 +62,11 @@ class DownloadItem:
     # aren't mutually exclusive, but no current caller sets both.
     expected_hash: Optional[Tuple[str, str]] = None
     subdirectory: Optional[str] = None
+    # Which product of a multi-product feature this file is (e.g. "MNT",
+    # "NPL" for IGN's LiDAR HD metadata layer, one feature = four links).
+    # Downloads of different products must never be mosaicked together
+    # even when they share a format and resolution; None = no such split.
+    product: Optional[str] = None
 
 
 @dataclass

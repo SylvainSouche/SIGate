@@ -67,7 +67,7 @@ def test_bulk_listing_widget_uses_sevenzip_override_instead_of_auto_detect(
     feed = b"""<feed xmlns="http://www.w3.org/2005/Atom" xmlns:gpf_dl="http://x"
         gpf_dl:page="1" gpf_dl:pagesize="50" gpf_dl:pagecount="1" gpf_dl:totalentries="0"></feed>"""
     widget = BulkListingSourceSelectWidget(
-        None, Qt.WindowType(0), 0, fetch=lambda url: feed, download_fn=None
+        None, Qt.WindowType(0), fetch=lambda url: feed, download_fn=None
     )
 
     assert widget.sevenzip_exe == "/fake/overridden/7z"

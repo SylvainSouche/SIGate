@@ -1,8 +1,8 @@
 [general]
 name=SIGate
 description=Browse and download geospatial data from national mapping agencies directly within QGIS's Data Source Manager.
-about=SIGate adds new categories to QGIS's Data Source Manager for browsing, searching, and downloading geospatial data from national mapping agencies exposing Atom, WFS, or WMS/WMTS services. Bulk downloads that are archives (zip, tar, or 7z, including split multi-part 7z archives) are extracted and added to the project directly; downloads that are plain files are added as a layer with no extraction step. An optional external 7-Zip executable is required only for sources that distribute data as .7z archives; .zip and .tar-family archives require no external dependency.
-version=0.0.66
+about=SIGate adds new categories to QGIS's Data Source Manager for browsing, searching, and downloading geospatial data from national mapping agencies exposing Atom, WFS, ArcGIS REST, or WMS/WMTS services. Bulk downloads that are archives (zip, tar, or 7z, including split multi-part 7z archives) are extracted and added to the project directly; downloads that are plain files are added as a layer with no extraction step. An optional external 7-Zip executable is required only for sources that distribute data as .7z archives; .zip and .tar-family archives require no external dependency.
+version=0.0.71
 qgisMinimumVersion=3.10
 author=Sylvain Souche
 email=
@@ -11,7 +11,7 @@ tracker=
 repository=
 category=Web
 icon=icon.png
-tags=geospatial,download,atom,wfs,wms,wmts,data source manager
+tags=geospatial,download,atom,wfs,arcgis,wms,wmts,data source manager
 experimental=True
 deprecated=False
 server=False
