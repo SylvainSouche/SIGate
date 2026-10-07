@@ -84,9 +84,9 @@ def _string_field(name: str) -> QgsField:
     """Builds a String-typed QgsField without QGIS 3.38+'s deprecation
     warning (QgsField(name, QVariant.String) - QGIS switched to a
     QMetaType.Type-based constructor overload in 3.38, per
-    https://api.qgis.org/api/deprecated.html). That overload doesn't
-    exist at all on this plugin's declared qgisMinimumVersion (3.10, in
-    metadata.txt), so it can't just replace the QVariant form outright -
+    https://api.qgis.org/api/deprecated.html). That overload may not
+    exist on every QGIS the plugin could be run on (qgisMinimumVersion is
+    3.40 in metadata.txt, which has it, but the fallback costs nothing) -
     tries the new constructor first and falls back to the old one on any
     failure (an old QGIS with no such overload raises at the QgsField(...)
     call itself, not just a warning) rather than branching on a QGIS

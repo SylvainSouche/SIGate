@@ -4,7 +4,7 @@ SIGate is not yet published on the official QGIS Plugin Repository. Until it is,
 
 ## Requirements
 
-- **QGIS 3.10 or later** (the Data Source Manager extension mechanism SIGate relies on has been stable since this version).
+- **QGIS 3.40 or later**, including QGIS 4 (the plugin declares Qt6 support). Developed and tested on QGIS 3.44 and 4.0; 3.40 is the declared minimum (the long-term-release line that has the scoped enums, point-cloud layers and COPC support SIGate uses) and has not been run directly.
 - **Python 3.9 or later** — bundled with QGIS; no separate install needed.
 - **7-Zip** (optional) — only required if you want to download sources that distribute data as `.7z` archives (confirmed real for at least one configured source). Not required for `.zip` or `.tar`-family archives, which SIGate handles without any external tool.
   - **Windows**: download the installer from [7-zip.org](https://www.7-zip.org/). SIGate looks for it at the standard install locations (`C:\Program Files\7-Zip\7z.exe` or the `(x86)` equivalent) even if the installer didn't add it to your system PATH.

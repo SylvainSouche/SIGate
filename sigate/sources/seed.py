@@ -46,6 +46,7 @@ IGN_FRANCE = SourceConfig(
     key="ign_fr",
     display_name="IGN (France)",
     country="France",
+    organisation="IGN",
     gateways=[
         GatewayConfig(
             gateway_type="atom",
@@ -103,6 +104,7 @@ SWISSTOPO_CH = SourceConfig(
     key="swisstopo_ch",
     display_name="swisstopo (Switzerland)",
     country="Switzerland",
+    organisation="swisstopo",
     gateways=[
         GatewayConfig(
             gateway_type="wmts_wms",
@@ -319,6 +321,7 @@ GEODIENSTE_CH = SourceConfig(
     key="geodienste_ch",
     display_name="Gefahrenkarten (geodienste.ch, Switzerland)",
     country="Switzerland",
+    organisation="geodienste.ch",
     gateways=[
         # geodienste.ch is a genuinely different platform from
         # data.geo.admin.ch above - Switzerland's *intercantonal*
@@ -440,6 +443,7 @@ NORWAY_GEONORGE = SourceConfig(
     key="geonorge_no",
     display_name="Geonorge kartkatalog (Norway)",
     country="Norway",
+    organisation="Geonorge",
     gateways=[
         # A genuinely different shape from every other Bulk Listing
         # source: kartkatalog.geonorge.no/api/search is otherwise a
@@ -489,6 +493,7 @@ BKG_DE = SourceConfig(
     key="bkg_de",
     display_name="BKG TopPlusOpen (Germany)",
     country="Germany",
+    organisation="BKG",
     gateways=[
         GatewayConfig(
             gateway_type="wmts_wms",
@@ -546,6 +551,7 @@ NETHERLANDS_PDOK = SourceConfig(
     key="pdok_nl",
     display_name="PDOK (Netherlands)",
     country="Netherlands",
+    organisation="PDOK",
     gateways=[
         GatewayConfig(
             gateway_type="wmts_wms",
@@ -581,6 +587,7 @@ BASEMAP_AT = SourceConfig(
     key="basemap_at",
     display_name="basemap.at (Austria)",
     country="Austria",
+    organisation="basemap.at",
     gateways=[
         GatewayConfig(
             gateway_type="wmts_wms",
@@ -614,6 +621,7 @@ PIEMONTE_ARPA = SourceConfig(
     key="piemonte_arpa",
     display_name="Arpa Piemonte - SIVA avalanches (Italy)",
     country="Italy",
+    organisation="Arpa Piemonte",
     gateways=[
         # Piemonte's regional environmental agency publishes its avalanche
         # information system (SIVA: documented avalanche events, the
@@ -640,6 +648,7 @@ INRAE_AVALANCHES = SourceConfig(
     key="inrae_avalanches",
     display_name="INRAE avalanches - CLPA, EPA (France)",
     country="France",
+    organisation="INRAE",
     gateways=[
         # The French avalanche location map (CLPA) and the avalanche
         # events survey (EPA) from INRAE's own GeoServer, 38 feature
@@ -663,6 +672,7 @@ FVG_IT = SourceConfig(
     key="fvg_it",
     display_name="Friuli Venezia Giulia - risk zones (Italy)",
     country="Italy",
+    organisation="Friuli Venezia Giulia",
     gateways=[
         # The region's ZONE_RISC workspace: surveyed and photo-interpreted
         # avalanches (CV_VALANGHE_RILEVATE: 3,875 features), avalanche
@@ -688,6 +698,7 @@ NVE_NO = SourceConfig(
     key="nve_no",
     display_name="NVE avalanche events - Skredhendelser (Norway)",
     country="Norway",
+    organisation="NVE",
     gateways=[
         # NVE's landslide/avalanche event register. The ArcGIS Enterprise
         # service publishes a WMS but no WFS (the WFSServer path answers
@@ -712,6 +723,7 @@ VDA_IT = SourceConfig(
     key="vda_it",
     display_name="Valle d'Aosta - avalanche cadastre (Italy)",
     country="Italy",
+    organisation="Valle d'Aosta",
     gateways=[
         # The region's avalanche cadastre (Catasto Valanghe) and snow
         # gauge poles. WMS only (no WFS found); answers a 1.3.0
@@ -719,7 +731,285 @@ VDA_IT = SourceConfig(
         GatewayConfig(
             gateway_type="wmts_wms",
             base_url="https://servizisct.regione.vda.it/ows/public/CatastoValanghe",
-            extra={"role": "public", "service": "wms"},
+            extra={"role": "Catasto valanghe (avalanche cadastre)", "service": "wms"},
+        ),
+        # The region's other public QGIS Server projects, one URL each.
+        # Found through the catalogue at geoportale.regione.vda.it/wms-nuovi
+        # (123 entries over 25 projects). WMS only: WFS, WMTS and OGC API
+        # Features answer but list nothing; downloads need a login.
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://servizisct.regione.vda.it/ows/public/CartaDissesti",
+            extra={"role": "Carta dei dissesti (slope failures)", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://servizisct.regione.vda.it/ows/public/CartaPAI",
+            extra={"role": "Carta PAI (hydrogeological risk plan)", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://servizisct.regione.vda.it/ows/public/Ambiti",
+            extra={
+                "role": "Ambiti inedificabili (building-restricted zones)",
+                "service": "wms",
+            },
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://servizisct.regione.vda.it/ows/public/CatastoGhiacciai",
+            extra={"role": "Catasto ghiacciai (glaciers)", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://servizisct.regione.vda.it/ows/public/CTRN",
+            extra={"role": "CTRN (regional topographic map)", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://servizisct.regione.vda.it/ows/public/Viabilita",
+            extra={"role": "Viabilita (roads)", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://servizisct.regione.vda.it/ows/public/AreeTutelate",
+            extra={"role": "Aree tutelate (parks and Natura 2000)", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://servizisct.regione.vda.it/ows/public/CartaGeologicaContinua",
+            extra={"role": "Carta geologica continua", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://servizisct.regione.vda.it/ows/public/CartaDeiSuoli",
+            extra={"role": "Carta dei suoli", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://servizisct.regione.vda.it/ows/public/WMS_DTM",
+            extra={"role": "Modello altimetrico (DTM)", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://servizisct.regione.vda.it/ows/public/WMS_CTR2005",
+            extra={"role": "CTR 2005 (topographic map)", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://servizisct.regione.vda.it/ows/public/WMS_Ortofoto2024",
+            extra={"role": "Ortofoto 2024", "service": "wms"},
+        ),
+    ],
+)
+
+
+REGIONE_PIEMONTE = SourceConfig(
+    key="regione_piemonte",
+    display_name="Regione Piemonte - base cartography (Italy)",
+    country="Italy",
+    organisation="Regione Piemonte",
+    gateways=[
+        # The Region's own geoportal (IGR), distinct from Arpa Piemonte
+        # above. Base maps: WMTS and WMS capabilities are static files,
+        # one layer per file (EPSG:32632 tile sets, one EPSG:3857). Only
+        # the current-year 2026 products and the BDTRE background maps
+        # are seeded; yearly 1:10,000 B/W editions 2014-2025 exist at
+        # wmts_regp_basecarto10bn_<year>.xml. Source page:
+        # igr.piemonte.it/scheda-informativa/allestimenti-cartografici
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geomap.reteunitaria.piemonte.it/WEBCAT/CAPABILITIES/wmts_regp_basecarto10bn_2026.xml",
+            extra={
+                "role": "Base map 1:10,000 B/W 2026",
+                "capabilities_url_is_already_static": "true",
+            },
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geomap.reteunitaria.piemonte.it/WEBCAT/CAPABILITIES/wmts_regp_basecarto25col_2026.xml",
+            extra={
+                "role": "Base map 1:25,000 colour 2026",
+                "capabilities_url_is_already_static": "true",
+            },
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geomap.reteunitaria.piemonte.it/WEBCAT/CAPABILITIES/wmts_regp_basecarto50col_2026.xml",
+            extra={
+                "role": "Base map 1:50,000 colour 2026",
+                "capabilities_url_is_already_static": "true",
+            },
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geomap.reteunitaria.piemonte.it/WEBCAT/CAPABILITIES/wmts_regp_basecarto50_geol_3col_2026.xml",
+            extra={
+                "role": "Base map 1:50,000 3-colour 2026",
+                "capabilities_url_is_already_static": "true",
+            },
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geomap.reteunitaria.piemonte.it/WEBCAT/CAPABILITIES/wmts_regp_basecarto250col_2026.xml",
+            extra={
+                "role": "Base map 1:250,000 colour 2026",
+                "capabilities_url_is_already_static": "true",
+            },
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geomap.reteunitaria.piemonte.it/WEBCAT/CAPABILITIES/wmts_regp_sfondo_bdtre.xml",
+            extra={
+                "role": "BDTRE background, colour (EPSG:32632)",
+                "capabilities_url_is_already_static": "true",
+            },
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geomap.reteunitaria.piemonte.it/WEBCAT/CAPABILITIES/wmts_regp_sfondo_bdtre_epsg3857.xml",
+            extra={
+                "role": "BDTRE background, colour (EPSG:3857)",
+                "capabilities_url_is_already_static": "true",
+            },
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geomap.reteunitaria.piemonte.it/WEBCAT/CAPABILITIES/wmts_regp_sfondo_bdtre_bn.xml",
+            extra={
+                "role": "BDTRE background, B/W (EPSG:32632)",
+                "capabilities_url_is_already_static": "true",
+            },
+        ),
+        # BDTRE: the base-data series in 11 themes, WFS + WMS each (page
+        # igr.piemonte.it/scheda-informativa/dati-servizi). MapServer:
+        # capabilities say WFS 1.0 but 2.0 requests work; CQL_FILTER is
+        # ignored and the hit count is capped at 1,000 (paging still works
+        # and QGIS loads well past 1,000 features). EPSG:32632.
+        GatewayConfig(
+            gateway_type="wfs",
+            base_url="https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_aggr",
+            extra={
+                "role": "BDTRE Aggregated structure",
+                "cql_filter_supported": "false",
+            },
+        ),
+        GatewayConfig(
+            gateway_type="wfs",
+            base_url="https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_amm",
+            extra={
+                "role": "BDTRE Administrative boundaries",
+                "cql_filter_supported": "false",
+            },
+        ),
+        GatewayConfig(
+            gateway_type="wfs",
+            base_url="https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_geofoto",
+            extra={
+                "role": "BDTRE Aerial-photo network",
+                "cql_filter_supported": "false",
+            },
+        ),
+        GatewayConfig(
+            gateway_type="wfs",
+            base_url="https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_idro",
+            extra={"role": "BDTRE Hydrography", "cql_filter_supported": "false"},
+        ),
+        GatewayConfig(
+            gateway_type="wfs",
+            base_url="https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_imm",
+            extra={"role": "BDTRE Buildings", "cql_filter_supported": "false"},
+        ),
+        GatewayConfig(
+            gateway_type="wfs",
+            base_url="https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_oro",
+            extra={
+                "role": "BDTRE Relief (spot heights, breaklines)",
+                "cql_filter_supported": "false",
+            },
+        ),
+        GatewayConfig(
+            gateway_type="wfs",
+            base_url="https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_pert",
+            extra={"role": "BDTRE Related structures", "cql_filter_supported": "false"},
+        ),
+        GatewayConfig(
+            gateway_type="wfs",
+            base_url="https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_serv",
+            extra={"role": "BDTRE Utility networks", "cql_filter_supported": "false"},
+        ),
+        GatewayConfig(
+            gateway_type="wfs",
+            base_url="https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_topo",
+            extra={"role": "BDTRE Toponymy", "cql_filter_supported": "false"},
+        ),
+        GatewayConfig(
+            gateway_type="wfs",
+            base_url="https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_veg",
+            extra={"role": "BDTRE Vegetation", "cql_filter_supported": "false"},
+        ),
+        GatewayConfig(
+            gateway_type="wfs",
+            base_url="https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_viab",
+            extra={"role": "BDTRE Roads and paths", "cql_filter_supported": "false"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_aggr",
+            extra={"role": "BDTRE Aggregated structure (WMS)", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_amm",
+            extra={"role": "BDTRE Administrative boundaries (WMS)", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_geofoto",
+            extra={"role": "BDTRE Aerial-photo network (WMS)", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_idro",
+            extra={"role": "BDTRE Hydrography (WMS)", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_imm",
+            extra={"role": "BDTRE Buildings (WMS)", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_oro",
+            extra={
+                "role": "BDTRE Relief (spot heights, breaklines) (WMS)",
+                "service": "wms",
+            },
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_pert",
+            extra={"role": "BDTRE Related structures (WMS)", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_serv",
+            extra={"role": "BDTRE Utility networks (WMS)", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_topo",
+            extra={"role": "BDTRE Toponymy (WMS)", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_veg",
+            extra={"role": "BDTRE Vegetation (WMS)", "service": "wms"},
+        ),
+        GatewayConfig(
+            gateway_type="wmts_wms",
+            base_url="https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_viab",
+            extra={"role": "BDTRE Roads and paths (WMS)", "service": "wms"},
         ),
     ],
 )
@@ -742,4 +1032,5 @@ def all_seed_sources():
         FVG_IT,
         NVE_NO,
         VDA_IT,
+        REGIONE_PIEMONTE,
     ]

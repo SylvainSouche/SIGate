@@ -389,3 +389,310 @@ def test_current_gateway_reflects_the_actual_selected_type_not_a_fixed_one(
         .extra.get("collection_id", "")
         .startswith("ch.swisstopo.")
     )
+
+
+# --- country filter -----------------------------------------------------------
+
+
+def _sources_in(*countries):
+    return [
+        SourceConfig(
+            key=f"k_{i}",
+            display_name=f"Source {i} ({country})",
+            country=country,
+            gateways=[GatewayConfig(gateway_type="wfs", base_url=f"https://x{i}.test")],
+        )
+        for i, country in enumerate(countries)
+    ]
+
+
+def _manager_with_user_sources(qgis_app, tmp_path, sources, gateway_type="wfs"):
+    from sigate.sources.store import add_or_replace_source
+
+    for source in sources:
+        add_or_replace_source(tmp_path, source)
+    return _make_manager(qgis_app, tmp_path, gateway_type=gateway_type)
+
+
+def _countries(manager):
+    return [
+        manager.country_combo.itemText(i) for i in range(manager.country_combo.count())
+    ]
+
+
+def _entries(manager):
+    return [manager.combo.itemText(i) for i in range(manager.combo.count())]
+
+
+def test_country_combo_lists_all_then_only_countries_with_this_tabs_connections(
+    qgis_app, tmp_path
+):
+    # Norway has Atom (Geonorge) but no WFS in the seed; Atlantis is ours.
+    manager = _manager_with_user_sources(
+        qgis_app, tmp_path, _sources_in("Atlantis", "Atlantis")
+    )
+    countries = _countries(manager)
+    assert countries[0] == "All countries"
+    assert "Atlantis" in countries
+    assert "Norway" not in countries  # no WFS there
+    assert countries[1:] == sorted(countries[1:], key=str.casefold)
+
+
+def test_picking_a_country_narrows_the_connection_list(qgis_app, tmp_path):
+    manager = _manager_with_user_sources(qgis_app, tmp_path, _sources_in("Atlantis"))
+    everything = _entries(manager)
+    assert any("Atlantis" in e for e in everything) and len(everything) > 1
+    manager.country_combo.setCurrentIndex(_countries(manager).index("Atlantis"))
+    assert _entries(manager) == ["Source 0 (Atlantis)"]
+    manager.country_combo.setCurrentIndex(0)
+    assert _entries(manager) == everything
+
+
+def test_changing_country_emits_only_when_the_selection_changes(qgis_app, tmp_path):
+    manager = _manager_with_user_sources(qgis_app, tmp_path, _sources_in("Atlantis"))
+    seen = []
+    manager.connectionChanged.connect(lambda s: seen.append(s.key if s else None))
+    # Current is the first entry (not Atlantis) -> filtering to Atlantis changes it.
+    manager.country_combo.setCurrentIndex(_countries(manager).index("Atlantis"))
+    assert seen == ["k_0"]
+    # Back to all: the Atlantis entry stays selected, so nothing to reload.
+    manager.country_combo.setCurrentIndex(0)
+    assert seen == ["k_0"]
+    assert manager.current_connection().key == "k_0"
+
+
+def test_new_connection_in_another_country_resets_the_filter_to_all(qgis_app, tmp_path):
+    from sigate.sources.store import add_or_replace_source
+
+    manager = _manager_with_user_sources(qgis_app, tmp_path, _sources_in("Atlantis"))
+    manager.country_combo.setCurrentIndex(_countries(manager).index("Atlantis"))
+    add_or_replace_source(
+        tmp_path,
+        SourceConfig(
+            key="elsewhere",
+            display_name="Elsewhere",
+            country="Lemuria",
+            gateways=[GatewayConfig(gateway_type="wfs", base_url="https://e.test")],
+        ),
+    )
+    manager.reload_connections(select_key="elsewhere")
+    assert manager.country_combo.currentIndex() == 0
+    assert manager.current_connection().key == "elsewhere"
+
+
+def test_the_country_choice_is_remembered_by_the_next_manager(qgis_app, tmp_path):
+    manager = _manager_with_user_sources(qgis_app, tmp_path, _sources_in("Atlantis"))
+    manager.country_combo.setCurrentIndex(_countries(manager).index("Atlantis"))
+    again = _make_manager(qgis_app, tmp_path, gateway_type="wfs")
+    assert again.country_combo.currentText() == "Atlantis"
+    assert _entries(again) == ["Source 0 (Atlantis)"]
+
+
+def test_a_remembered_country_without_connections_for_this_tab_falls_back_to_all(
+    qgis_app, tmp_path
+):
+    from sigate.ui import settings as sigate_settings
+
+    sigate_settings.set_last_country_filter("Atlantis")
+    manager = _make_manager(qgis_app, tmp_path, gateway_type="wfs")
+    assert manager.country_combo.currentIndex() == 0
+    assert len(_entries(manager)) > 1
+
+
+def test_a_source_without_a_country_is_filed_under_no_country(qgis_app, tmp_path):
+    manager = _manager_with_user_sources(qgis_app, tmp_path, _sources_in(""))
+    assert "(no country)" in _countries(manager)
+    manager.country_combo.setCurrentIndex(_countries(manager).index("(no country)"))
+    assert _entries(manager) == ["Source 0 ()"]
+
+
+def test_codes_and_names_of_the_same_country_share_one_entry_in_the_country_combo(
+    qgis_app, tmp_path
+):
+    manager = _manager_with_user_sources(
+        qgis_app,
+        tmp_path,
+        [
+            SourceConfig(
+                key=f"u{i}",
+                display_name=f"User {i}",
+                country=country,
+                gateways=[
+                    GatewayConfig(gateway_type="wfs", base_url=f"https://u{i}.test")
+                ],
+            )
+            for i, country in enumerate(["DE", "de", "Germany", "Deutschland"])
+        ],
+    )
+    countries = _countries(manager)
+    assert countries.count("Germany") == 1
+    assert "DE" not in countries and "de" not in countries
+    manager.country_combo.setCurrentIndex(countries.index("Germany"))
+    shown = _entries(manager)
+    assert {"User 0", "User 1", "User 2", "User 3"} <= set(shown)
+
+
+# --- organisation filter --------------------------------------------------------
+
+
+def _wfs_source(key, name, country="Atlantis", organisation="", url=None, role=None):
+    extra = {"role": role} if role else {}
+    return SourceConfig(
+        key=key,
+        display_name=name,
+        country=country,
+        organisation=organisation,
+        gateways=[
+            GatewayConfig(
+                gateway_type="wfs", base_url=url or f"https://{key}.test", extra=extra
+            )
+        ],
+    )
+
+
+def _orgs(manager):
+    return [
+        manager.organisation_combo.itemText(i)
+        for i in range(manager.organisation_combo.count())
+    ]
+
+
+def _pick(combo, text):
+    combo.setCurrentIndex([combo.itemText(i) for i in range(combo.count())].index(text))
+
+
+def test_organisation_combo_lists_the_organisations_of_the_picked_country(
+    qgis_app, tmp_path
+):
+    manager = _manager_with_user_sources(
+        qgis_app,
+        tmp_path,
+        [
+            _wfs_source("a1", "Acme - roads (Atlantis)"),
+            _wfs_source("a2", "Acme - rivers (Atlantis)"),
+            _wfs_source("b1", "Bureau - maps (Atlantis)"),
+            _wfs_source("z1", "Zeta - maps (Lemuria)", country="Lemuria"),
+        ],
+    )
+    assert _orgs(manager)[0] == "All organisations"
+    assert {"Acme", "Bureau", "Zeta", "IGN"} <= set(_orgs(manager))
+    _pick(manager.country_combo, "Atlantis")
+    assert _orgs(manager) == ["All organisations", "Acme", "Bureau"]
+
+
+def test_picking_an_organisation_shows_its_entries_without_the_prefix(
+    qgis_app, tmp_path
+):
+    manager = _manager_with_user_sources(
+        qgis_app,
+        tmp_path,
+        [
+            _wfs_source("a1", "Acme - roads (Atlantis)"),
+            _wfs_source("a2", "Acme - rivers (Atlantis)"),
+            _wfs_source("b1", "Bureau - maps (Atlantis)"),
+        ],
+    )
+    _pick(manager.country_combo, "Atlantis")
+    assert "Acme - roads (Atlantis)" in _entries(
+        manager
+    )  # all organisations: full name
+    _pick(manager.organisation_combo, "Acme")
+    assert _entries(manager) == ["roads", "rivers"]
+    assert manager.current_connection().key == "a1"
+    _pick(manager.organisation_combo, "Bureau")
+    assert _entries(manager) == ["maps"]
+
+
+def test_a_stated_organisation_overrides_the_derived_one_and_groups_case_insensitively(
+    qgis_app, tmp_path
+):
+    manager = _manager_with_user_sources(
+        qgis_app,
+        tmp_path,
+        [
+            _wfs_source("a1", "Roads of Atlantis", organisation="Acme"),
+            _wfs_source("a2", "ACME - rivers (Atlantis)"),
+        ],
+    )
+    _pick(manager.country_combo, "Atlantis")
+    assert _orgs(manager) == ["All organisations", "Acme"]
+    _pick(manager.organisation_combo, "Acme")
+    assert len(_entries(manager)) == 2
+
+
+def test_several_entries_of_one_source_are_told_apart_by_role_under_an_organisation(
+    qgis_app, tmp_path
+):
+    from sigate.sources.store import add_or_replace_source
+
+    add_or_replace_source(
+        tmp_path,
+        SourceConfig(
+            key="multi",
+            display_name="Acme - data (Atlantis)",
+            country="Atlantis",
+            gateways=[
+                GatewayConfig(
+                    gateway_type="wfs",
+                    base_url="https://m1.test",
+                    extra={"role": "roads"},
+                ),
+                GatewayConfig(
+                    gateway_type="wfs",
+                    base_url="https://m2.test",
+                    extra={"role": "rivers"},
+                ),
+            ],
+        ),
+    )
+    manager = _make_manager(qgis_app, tmp_path, gateway_type="wfs")
+    _pick(manager.country_combo, "Atlantis")
+    assert "Acme - data (Atlantis) — roads" in _entries(manager)
+    _pick(manager.organisation_combo, "Acme")
+    assert _entries(manager) == ["data — roads", "data — rivers"]
+    assert manager.current_gateway().base_url == "https://m1.test"
+
+
+def test_changing_country_keeps_the_organisation_only_if_it_is_still_offered(
+    qgis_app, tmp_path
+):
+    manager = _manager_with_user_sources(
+        qgis_app,
+        tmp_path,
+        [
+            _wfs_source("a1", "Acme - roads (Atlantis)"),
+            _wfs_source("z1", "Zeta - maps (Lemuria)", country="Lemuria"),
+        ],
+    )
+    _pick(manager.organisation_combo, "Acme")
+    assert manager.organisation_combo.currentText() == "Acme"
+    _pick(manager.country_combo, "Atlantis")  # Acme is there: kept
+    assert manager.organisation_combo.currentText() == "Acme"
+    _pick(manager.country_combo, "Lemuria")  # Acme is not: back to all
+    assert manager.organisation_combo.currentIndex() == 0
+
+
+def test_organisation_choice_is_remembered_and_new_connection_elsewhere_resets_it(
+    qgis_app, tmp_path
+):
+    from sigate.sources.store import add_or_replace_source
+
+    manager = _manager_with_user_sources(
+        qgis_app, tmp_path, [_wfs_source("a1", "Acme - roads (Atlantis)")]
+    )
+    _pick(manager.country_combo, "Atlantis")
+    _pick(manager.organisation_combo, "Acme")
+    again = _make_manager(qgis_app, tmp_path, gateway_type="wfs")
+    assert again.country_combo.currentText() == "Atlantis"
+    assert again.organisation_combo.currentText() == "Acme"
+    add_or_replace_source(tmp_path, _wfs_source("n1", "Newco - x (Atlantis)"))
+    again.reload_connections(select_key="n1")
+    assert again.organisation_combo.currentIndex() == 0
+    assert again.current_connection().key == "n1"
+
+
+def test_organisation_survives_a_save_and_load_roundtrip(qgis_app, tmp_path):
+    from sigate.sources.store import add_or_replace_source, load_user_overrides
+
+    add_or_replace_source(tmp_path, _wfs_source("o1", "Whatever", organisation="Acme"))
+    assert load_user_overrides(tmp_path)[0].organisation == "Acme"

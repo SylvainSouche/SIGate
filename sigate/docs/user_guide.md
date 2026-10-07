@@ -4,7 +4,7 @@ SIGate adds four new categories to QGIS's **Data Source Manager** (**Layer → D
 
 ## Managing connections
 
-All four tabs share the same **Connection** row at the top, matching the same New/Edit/Delete/Load/Save pattern QGIS itself uses for WMS, WFS, PostGIS, and other server-based data sources:
+All four tabs share the same **Connection** row at the top, matching the same New/Edit/Delete/Load/Save pattern QGIS itself uses for WMS, WFS, PostGIS, and other server-based data sources. Three drop-downs narrow the list from left to right: **country**, then **organisation** (the body that publishes the data, such as IGN or Regione Piemonte), then the **connection** itself. Each of the first two offers "All ..." or one value, and only what has something for the current tab. Once an organisation is picked, its connections are listed without the organisation's name in front. Your choices are remembered between tabs and sessions. When you add a connection with **New...**, the optional *Organisation* field says where it belongs; left empty, it is taken from the start of the display name (up to the first " - ").
 
 - The dropdown switches between whichever connections are configured for that tab's kind of source.
 - **New…** adds your own connection (a base URL, optional authentication, and any other details a specific source needs).

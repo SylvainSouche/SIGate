@@ -109,7 +109,7 @@ def test_seed_basemap_at_has_wmts_only_no_wfs():
     assert BASEMAP_AT.gateway("wfs") is None
 
 
-def test_all_seed_sources_includes_all_twelve_seeded_sources():
+def test_all_seed_sources_includes_all_thirteen_seeded_sources():
     sources = all_seed_sources()
     keys = {s.key for s in sources}
     assert keys == {
@@ -125,6 +125,7 @@ def test_all_seed_sources_includes_all_twelve_seeded_sources():
         "fvg_it",
         "nve_no",
         "vda_it",
+        "regione_piemonte",
     }
 
 

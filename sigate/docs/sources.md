@@ -23,7 +23,8 @@ Sources that were researched but are *not* bundled live in [`candidate_sources.m
 | INRAE avalanches (`inrae_avalanches`) | France | WFS | WFS | None | Working; CLPA stand-in (live-checked 2026-10-06) |
 | Friuli Venezia Giulia (`fvg_it`) | Italy | WFS, WMS | WFS, WM(T)S | None | Working (live-checked 2026-10-06) |
 | NVE Skredhendelser (`nve_no`) | Norway | ArcGIS REST, WMS | ArcGIS REST, WM(T)S | None | Working (live-checked 2026-10-06) |
-| Valle d'Aosta avalanche cadastre (`vda_it`) | Italy | WMS | WM(T)S | None | Working (live-checked 2026-10-06) |
+| Valle d'Aosta SCT (`vda_it`) | Italy | WMS ×13 | WM(T)S | None | Working (live-checked 2026-10-06) |
+| Regione Piemonte base cartography (`regione_piemonte`) | Italy | WMTS ×8, WFS ×11, WMS ×11 | WM(T)S, WFS | None | Working (live-checked 2026-10-06) |
 
 The four tabs each accept certain gateway types: **ArcGIS REST** takes ArcGIS REST MapServer/FeatureServer services; **Bulk Download** takes Atom, STAC and the Geonorge catalog; **WFS** takes WFS; **WM(T)S** takes WMTS and plain WMS (a connection marked `service=wms` is read as WMS; an unmarked one tries WMTS first and falls back to WMS). Export as GeoTIFF is WMTS-only.
 
@@ -205,13 +206,76 @@ INRAE's own GeoServer: the CLPA (avalanche location map) and the EPA avalanche e
 - 10 layers, EPSG:25833: Skredtype, release and run-out points and areas (`Skredhendelse_Utlosnings*`, `Skredhendelse_Utlops*`), fatalities, consequences (transport, forest/agriculture, buildings) and snow avalanches. Layer 9 holds 26,218 records. Page size capped at 2,000.
 - **WMS** (WM(T)S tab): `https://kart.nve.no/enterprise/services/Skredhendelser1/MapServer/WMSServer` · 10 layers. There is no WFS.
 
-## Italy — Valle d'Aosta (`vda_it`)
+## Italy — Valle d'Aosta, SCT (`vda_it`)
+
+The Region's Sistema delle Conoscenze Territoriali. Catalogue (123 entries, 13 pages): `https://geoportale.regione.vda.it/wms-nuovi/`; server: QGIS Server at `servizisct.regione.vda.it`, one project per URL (`/ows/public/<project>`). 25 projects sit behind the catalogue; 13 are seeded.
 
 ### WMS — WM(T)S tab
-- Endpoint: `https://servizisct.regione.vda.it/ows/public/CatastoValanghe` · no auth · WMS 1.3.0, 34 layers: the avalanche cadastre (Catasto Valanghe) and snow-gauge poles (Paline nivometriche). No WFS found.
+- Catasto valanghe (avalanche cadastre): `https://servizisct.regione.vda.it/ows/public/CatastoValanghe`
+- Carta dei dissesti (slope failures): `https://servizisct.regione.vda.it/ows/public/CartaDissesti`
+- Carta PAI (hydrogeological risk plan): `https://servizisct.regione.vda.it/ows/public/CartaPAI`
+- Ambiti inedificabili (building-restricted zones): `https://servizisct.regione.vda.it/ows/public/Ambiti`
+- Catasto ghiacciai (glaciers): `https://servizisct.regione.vda.it/ows/public/CatastoGhiacciai`
+- CTRN (regional topographic map): `https://servizisct.regione.vda.it/ows/public/CTRN`
+- Viabilita (roads): `https://servizisct.regione.vda.it/ows/public/Viabilita`
+- Aree tutelate (parks and Natura 2000): `https://servizisct.regione.vda.it/ows/public/AreeTutelate`
+- Carta geologica continua: `https://servizisct.regione.vda.it/ows/public/CartaGeologicaContinua`
+- Carta dei suoli: `https://servizisct.regione.vda.it/ows/public/CartaDeiSuoli`
+- Modello altimetrico (DTM): `https://servizisct.regione.vda.it/ows/public/WMS_DTM`
+- CTR 2005 (topographic map): `https://servizisct.regione.vda.it/ows/public/WMS_CTR2005`
+- Ortofoto 2024: `https://servizisct.regione.vda.it/ows/public/WMS_Ortofoto2024`
+
+Not seeded, same server: the remaining projects (`AttivitaAgricole`, `FEASR`, `Inerti`, the other orthophoto years 1999-2022, `WMS_Mista`, `WMS_Ortofoto_CTR`, `WMS_Pittorica`).
+
+- **WMS only.** WFS, WMTS and OGC API Features answer on every project but list no feature types, tile layers or collections; WCS answers (the DTM project; coverages not checked).
+- **Downloads** (84 of the catalogue's 123 entries) sit behind a single-sign-on login and cannot be fetched by the plugin.
 
 ### Known but not yet usable
 - Catalonia (ICGC) avalanche data: WMS-only, endpoint not seeded.
+
+## Italy — Regione Piemonte, base cartography (`regione_piemonte`)
+
+The Region's own geoportal (IGR) - a different organisation and server from Arpa Piemonte above. Pages: `igr.piemonte.it/scheda-informativa/allestimenti-cartografici` (base maps) and `.../dati-servizi` (BDTRE).
+
+### WMTS — WM(T)S tab (base maps)
+Static capabilities files, one layer each, PNG. All EPSG:32632 tile sets except the EPSG:3857 background.
+- Base map 1:10,000 B/W 2026: `https://geomap.reteunitaria.piemonte.it/WEBCAT/CAPABILITIES/wmts_regp_basecarto10bn_2026.xml`
+- Base map 1:25,000 colour 2026: `https://geomap.reteunitaria.piemonte.it/WEBCAT/CAPABILITIES/wmts_regp_basecarto25col_2026.xml`
+- Base map 1:50,000 colour 2026: `https://geomap.reteunitaria.piemonte.it/WEBCAT/CAPABILITIES/wmts_regp_basecarto50col_2026.xml`
+- Base map 1:50,000 3-colour 2026: `https://geomap.reteunitaria.piemonte.it/WEBCAT/CAPABILITIES/wmts_regp_basecarto50_geol_3col_2026.xml`
+- Base map 1:250,000 colour 2026: `https://geomap.reteunitaria.piemonte.it/WEBCAT/CAPABILITIES/wmts_regp_basecarto250col_2026.xml`
+- BDTRE background, colour (EPSG:32632): `https://geomap.reteunitaria.piemonte.it/WEBCAT/CAPABILITIES/wmts_regp_sfondo_bdtre.xml`
+- BDTRE background, colour (EPSG:3857): `https://geomap.reteunitaria.piemonte.it/WEBCAT/CAPABILITIES/wmts_regp_sfondo_bdtre_epsg3857.xml`
+- BDTRE background, B/W (EPSG:32632): `https://geomap.reteunitaria.piemonte.it/WEBCAT/CAPABILITIES/wmts_regp_sfondo_bdtre_bn.xml`
+
+The same page lists yearly 1:10,000 black-and-white editions for 2014-2025 (`wmts_regp_basecarto10bn_<year>.xml`, 2020 missing) and WMS twins (`wms_regp_*.xml`) of all of these; not seeded.
+
+### WFS — WFS tab (BDTRE base data, 11 themes)
+MapServer. Capabilities declare WFS 1.0 but 2.0.0 requests work. **CQL filters are ignored**, so the Filter panel does not narrow the query grid, and the server's feature *count* is **capped at 1,000** - only the count: paging works and QGIS loads past 1,000 features (6,000+ read from `pt_quo` in a test). EPSG:32632.
+- BDTRE Aggregated structure: `https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_aggr`
+- BDTRE Administrative boundaries: `https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_amm`
+- BDTRE Aerial-photo network: `https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_geofoto`
+- BDTRE Hydrography: `https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_idro`
+- BDTRE Buildings: `https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_imm`
+- BDTRE Relief (spot heights, breaklines): `https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_oro`
+- BDTRE Related structures: `https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_pert`
+- BDTRE Utility networks: `https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_serv`
+- BDTRE Toponymy: `https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_topo`
+- BDTRE Vegetation: `https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_veg`
+- BDTRE Roads and paths: `https://geoservices.csi.it/ms/wfs/bdtre/rp-01/bdtrewfs/bdtre_viab`
+
+### WMS — WM(T)S tab (BDTRE, the same 11 themes)
+- BDTRE Aggregated structure (WMS): `https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_aggr`
+- BDTRE Administrative boundaries (WMS): `https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_amm`
+- BDTRE Aerial-photo network (WMS): `https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_geofoto`
+- BDTRE Hydrography (WMS): `https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_idro`
+- BDTRE Buildings (WMS): `https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_imm`
+- BDTRE Relief (spot heights, breaklines) (WMS): `https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_oro`
+- BDTRE Related structures (WMS): `https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_pert`
+- BDTRE Utility networks (WMS): `https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_serv`
+- BDTRE Toponymy (WMS): `https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_topo`
+- BDTRE Vegetation (WMS): `https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_veg`
+- BDTRE Roads and paths (WMS): `https://geoservices.csi.it/ms/wms/bdtre/rp-01/bdtrewms/bdtre_viab`
 
 ---
 

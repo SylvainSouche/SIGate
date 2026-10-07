@@ -19,6 +19,8 @@ _KEY_SEVENZIP_PATH_OVERRIDE = f"{_NAMESPACE}/sevenzip_path_override"
 _KEY_LOCALE = f"{_NAMESPACE}/locale"
 _KEY_LAST_CENTRAL_REPO = f"{_NAMESPACE}/last_central_repo"
 _KEY_LAST_DESTINATION = f"{_NAMESPACE}/last_destination"
+_KEY_LAST_COUNTRY_FILTER = f"{_NAMESPACE}/last_country_filter"
+_KEY_LAST_ORGANISATION_FILTER = f"{_NAMESPACE}/last_organisation_filter"
 
 DEFAULT_LOCALE = "en"
 
@@ -93,3 +95,27 @@ def get_last_destination() -> Optional[str]:
 def set_last_destination(path: Optional[str]) -> None:
     """path=None clears the remembered value."""
     QgsSettings().setValue(_KEY_LAST_DESTINATION, path or "")
+
+
+def get_last_country_filter() -> Optional[str]:
+    """The country last picked in a connection manager's country combo,
+    shared by every tab; None means "all countries"."""
+    value = QgsSettings().value(_KEY_LAST_COUNTRY_FILTER, "", type=str)
+    return value or None
+
+
+def set_last_country_filter(country: Optional[str]) -> None:
+    """country=None (all countries) clears the remembered value."""
+    QgsSettings().setValue(_KEY_LAST_COUNTRY_FILTER, country or "")
+
+
+def get_last_organisation_filter() -> Optional[str]:
+    """The organisation key last picked in a connection manager's
+    organisation combo; None means "all organisations"."""
+    value = QgsSettings().value(_KEY_LAST_ORGANISATION_FILTER, "", type=str)
+    return value or None
+
+
+def set_last_organisation_filter(organisation: Optional[str]) -> None:
+    """organisation=None (all organisations) clears the remembered value."""
+    QgsSettings().setValue(_KEY_LAST_ORGANISATION_FILTER, organisation or "")

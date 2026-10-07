@@ -58,6 +58,10 @@ class SourceConfig:
     display_name: str
     country: str
     gateways: List[GatewayConfig] = field(default_factory=list)
+    # The publishing organisation, the middle level of the connection
+    # manager's country > organisation > entry pickers. Empty means
+    # "work it out from the display name" (sources.organisations).
+    organisation: str = ""
 
     def gateway(self, gateway_type: str) -> Optional[GatewayConfig]:
         """The first configured gateway of the given type, or None. If a
@@ -92,6 +96,7 @@ def _source_from_dict(data: dict) -> SourceConfig:
         display_name=data["display_name"],
         country=data["country"],
         gateways=gateways,
+        organisation=data.get("organisation", ""),
     )
 
 

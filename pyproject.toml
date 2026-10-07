@@ -5,7 +5,7 @@ name = "sigate"
 # this field at all; metadata.txt's version is the sole authoritative
 # one (see make increment). Updated here periodically so it doesn't
 # drift too far, but treat it as approximate, not load-bearing.
-version = "0.0.71"
+version = "0.0.77"
 description = "QGIS plugin: browse and download geospatial data from national mapping agencies via QGIS's Data Source Manager."
 requires-python = ">=3.9"
 

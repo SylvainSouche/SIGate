@@ -29,6 +29,16 @@ ConnectionEditDialog.get_source_config(), same as before) - only the
 combo's *listing* is gateway-instance-granular, not connection
 management itself.
 
+Three combos narrow the list: country, then organisation, then the
+connection itself. The first two offer "All ..." or one value, drawn only
+from what has at least one connection for this tab's gateway type(s)
+(an organisation is listed under the country it is in). The choices are
+remembered across tabs and sessions (settings.get_last_country_filter /
+get_last_organisation_filter) and fall back to "all" when a tab has
+nothing for them. With an organisation picked, entry names drop its
+prefix ("Regione Piemonte - base cartography" shows as "base
+cartography"); with "All organisations" they keep it.
+
 The New/Edit dialog exposes generic fields (key, display name, country,
 base URL, a basic authentication type) plus a free-form key=value text
 area for anything gateway-specific. A fully gateway-type-aware form
@@ -58,7 +68,14 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 
+from sigate.sources.countries import canonical_country
+from sigate.sources.organisations import (
+    organisation_key,
+    organisation_of,
+    short_label,
+)
 from sigate.sources.seed import all_seed_sources
+from sigate.ui import settings as sigate_settings
 from sigate.sources.store import (
     AuthConfig,
     GatewayConfig,
@@ -110,6 +127,11 @@ class ConnectionEditDialog(QDialog):
         form.addRow(self.tr("Display name:"), self.name_edit)
         self.country_edit = QLineEdit(self)
         form.addRow(self.tr("Country:"), self.country_edit)
+        self.organisation_edit = QLineEdit(self)
+        self.organisation_edit.setPlaceholderText(
+            self.tr("optional - taken from the display name when empty")
+        )
+        form.addRow(self.tr("Organisation:"), self.organisation_edit)
         self.url_edit = QLineEdit(self)
         form.addRow(self.tr("Base URL:"), self.url_edit)
 
@@ -145,6 +167,7 @@ class ConnectionEditDialog(QDialog):
         )  # identity field - not editable once a connection exists
         self.name_edit.setText(source.display_name)
         self.country_edit.setText(source.country)
+        self.organisation_edit.setText(source.organisation)
         gateway = source.gateway(self.gateway_type)
         if gateway:
             self.url_edit.setText(gateway.base_url)
@@ -186,6 +209,7 @@ class ConnectionEditDialog(QDialog):
             display_name=self.name_edit.text().strip(),
             country=self.country_edit.text().strip(),
             gateways=[gateway],
+            organisation=self.organisation_edit.text().strip(),
         )
 
 
@@ -227,12 +251,40 @@ class ConnectionManager(QWidget):
         self.reload_connections()
 
     def _build_ui(self) -> None:
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        layout = QHBoxLayout()
+        outer.addLayout(layout)
+
+        self.country_combo = QComboBox(self)
+        self.country_combo.setToolTip(
+            self.tr("Show only the connections of one country")
+        )
+        self.country_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToContents
+        )
+        self.country_combo.currentIndexChanged.connect(self._on_country_changed)
+        layout.addWidget(self.country_combo)
+
+        self.organisation_combo = QComboBox(self)
+        self.organisation_combo.setToolTip(
+            self.tr("Show only the connections of one organisation")
+        )
+        self.organisation_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToContents
+        )
+        self.organisation_combo.currentIndexChanged.connect(
+            self._on_organisation_changed
+        )
+        layout.addWidget(self.organisation_combo)
 
         self.combo = QComboBox(self)
         self.combo.currentIndexChanged.connect(self._on_combo_changed)
-        layout.addWidget(self.combo)
+        layout.addWidget(self.combo, 1)
+
+        layout = QHBoxLayout()
+        outer.addLayout(layout)
+        layout.addStretch()
 
         self.new_button = QPushButton(self.tr("New..."), self)
         self.new_button.clicked.connect(self._on_new)
@@ -287,39 +339,188 @@ class ConnectionManager(QWidget):
         overrides = load_user_overrides(self.data_dir_provider())
         return any(o.key == key for o in overrides)
 
-    def _label_for(self, source: SourceConfig, gateway: GatewayConfig, choices) -> str:
+    def _label_for(
+        self, source: SourceConfig, gateway: GatewayConfig, choices, short: bool = False
+    ) -> str:
         """Plain display name when this source contributes only one
         gateway of this type to the combo (the common case, and the
         only case for every seeded WFS/Bulk Listing source today) -
         otherwise disambiguated with the gateway's own role, so a source
         with multiple instances (confirmed real: IGN's public vs
         apikey-gated WM(T)S) never collapses into one indistinguishable
-        entry the way it did before this was fixed."""
-        same_source_count = sum(1 for s, _g in choices if s.key == source.key)
-        if same_source_count <= 1:
-            return source.display_name
+        entry the way it did before this was fixed. `short` is used once
+        an organisation is picked: the organisation prefix and the
+        trailing country are dropped (sources.organisations.short_label)."""
+        shared = sum(1 for s, _g in choices if s.key == source.key) > 1
         role = gateway.extra.get("role")
+        if short:
+            return short_label(
+                source, role or (gateway.base_url if shared else None), shared
+            )
+        if not shared:
+            return source.display_name
         label = role if role else gateway.base_url
-        return f"{source.display_name} — {label}"
+        return f"{source.display_name} \u2014 {label}"
+
+    def _country_of(self, source: SourceConfig) -> str:
+        """Grouping key for the country combo: one English name whether
+        the connection says "NO", "no", "Norge" or "Norway"."""
+        return canonical_country(source.country)
+
+    def _in_country(self, choices, country: Optional[str]):
+        return [
+            (s, g)
+            for s, g in choices
+            if country is None or self._country_of(s) == country
+        ]
+
+    def _in_organisation(self, choices, organisation: Optional[str]):
+        return [
+            (s, g)
+            for s, g in choices
+            if organisation is None
+            or organisation_key(organisation_of(s)) == organisation
+        ]
+
+    def _populate_countries(self, choices, selected: Optional[str]) -> Optional[str]:
+        """Fills the country combo from `choices` (all countries first)
+        and returns the country actually selected - `selected` when this
+        tab has connections for it, otherwise None (all countries)."""
+        countries = sorted({self._country_of(s) for s, _g in choices}, key=str.casefold)
+        if selected not in countries:
+            selected = None
+        self.country_combo.blockSignals(True)
+        self.country_combo.clear()
+        self.country_combo.addItem(self.tr("All countries"), None)
+        for country in countries:
+            self.country_combo.addItem(country or self.tr("(no country)"), country)
+        index = 0 if selected is None else countries.index(selected) + 1
+        self.country_combo.setCurrentIndex(index)
+        self.country_combo.blockSignals(False)
+        return selected
+
+    def _populate_organisations(
+        self, choices, selected: Optional[str]
+    ) -> Optional[str]:
+        """Fills the organisation combo from `choices` (already narrowed
+        to the picked country). Items carry a case-insensitive key, text
+        is the first spelling seen. Returns the key actually selected,
+        None meaning all organisations."""
+        names = {}
+        for source, _g in choices:
+            name = organisation_of(source)
+            names.setdefault(organisation_key(name), name)
+        ordered = sorted(names.items(), key=lambda kv: kv[1].casefold())
+        if selected not in names:
+            selected = None
+        self.organisation_combo.blockSignals(True)
+        self.organisation_combo.clear()
+        self.organisation_combo.addItem(self.tr("All organisations"), None)
+        for key, name in ordered:
+            self.organisation_combo.addItem(name, key)
+        keys = [key for key, _n in ordered]
+        index = 0 if selected is None else keys.index(selected) + 1
+        self.organisation_combo.setCurrentIndex(index)
+        self.organisation_combo.blockSignals(False)
+        return selected
+
+    def _fill_connections(
+        self,
+        choices,
+        country: Optional[str],
+        organisation: Optional[str] = None,
+        select_key: Optional[str] = None,
+        select_role: Optional[str] = None,
+        select_base_url: Optional[str] = None,
+    ) -> None:
+        """Fills the connection combo with `choices` restricted to
+        `country` and `organisation` (None = all), selecting the
+        requested entry when it is among them, else the first. Emits
+        nothing."""
+        shown = self._in_organisation(self._in_country(choices, country), organisation)
+        self.combo.blockSignals(True)
+        self.combo.clear()
+        select_index = 0
+        for i, (source, gateway) in enumerate(shown):
+            self.combo.addItem(
+                self._label_for(source, gateway, shown, short=organisation is not None),
+                (source, gateway),
+            )
+            if select_base_url is not None:
+                if source.key == select_key and gateway.base_url == select_base_url:
+                    select_index = i
+            elif select_key and source.key == select_key:
+                if select_role is None or gateway.extra.get("role") == select_role:
+                    select_index = i
+        if shown:
+            self.combo.setCurrentIndex(select_index)
+        self.combo.blockSignals(False)
 
     def reload_connections(
         self, select_key: Optional[str] = None, select_role: Optional[str] = None
     ) -> None:
-        self.combo.blockSignals(True)
-        self.combo.clear()
         choices = self._all_connection_choices()
-        select_index = 0
-        for i, (source, gateway) in enumerate(choices):
-            label = self._label_for(source, gateway, choices)
-            self.combo.addItem(label, (source, gateway))
-            if select_key and source.key == select_key:
-                if select_role is None or gateway.extra.get("role") == select_role:
-                    select_index = i
-        self.combo.blockSignals(False)
-        if choices:
-            self.combo.setCurrentIndex(select_index)
+        # Keep the country and organisation the user is looking at,
+        # unless the connection being selected (just added, edited or
+        # loaded) lives elsewhere.
+        if self.country_combo.count():
+            country = self.country_combo.currentData()
+            organisation = self.organisation_combo.currentData()
+        else:
+            country = sigate_settings.get_last_country_filter()
+            organisation = sigate_settings.get_last_organisation_filter()
+        if select_key:
+            for source, _gateway in choices:
+                if source.key != select_key:
+                    continue
+                if country not in (None, self._country_of(source)):
+                    country = None
+                if organisation not in (
+                    None,
+                    organisation_key(organisation_of(source)),
+                ):
+                    organisation = None
+                break
+        country = self._populate_countries(choices, country)
+        in_country = self._in_country(choices, country)
+        organisation = self._populate_organisations(in_country, organisation)
+        self._fill_connections(choices, country, organisation, select_key, select_role)
         self._update_button_state()
         self._emit_current()
+
+    def _identity(self):
+        current = self.combo.currentData()
+        return (current[0].key, current[1].base_url) if current else None
+
+    def _refill_keeping_selection(self, country, organisation) -> None:
+        before = self._identity()
+        self._fill_connections(
+            self._all_connection_choices(),
+            country,
+            organisation,
+            select_key=before[0] if before else None,
+            select_base_url=before[1] if before else None,
+        )
+        self._update_button_state()
+        if self._identity() != before:
+            self._emit_current()
+
+    def _on_country_changed(self, _index: int) -> None:
+        country = self.country_combo.currentData()
+        sigate_settings.set_last_country_filter(country)
+        # An organisation belongs to the countries it is in: keep it if
+        # it is still offered, else back to all.
+        organisation = self._populate_organisations(
+            self._in_country(self._all_connection_choices(), country),
+            self.organisation_combo.currentData(),
+        )
+        sigate_settings.set_last_organisation_filter(organisation)
+        self._refill_keeping_selection(country, organisation)
+
+    def _on_organisation_changed(self, _index: int) -> None:
+        organisation = self.organisation_combo.currentData()
+        sigate_settings.set_last_organisation_filter(organisation)
+        self._refill_keeping_selection(self.country_combo.currentData(), organisation)
 
     def _update_button_state(self) -> None:
         current = self.current_connection()
@@ -446,6 +647,7 @@ class ConnectionManager(QWidget):
                 display_name=data["display_name"],
                 country=data["country"],
                 gateways=gateways,
+                organisation=data.get("organisation", ""),
             )
         except Exception as e:
             QMessageBox.warning(self, self.tr("Load failed"), str(e))
